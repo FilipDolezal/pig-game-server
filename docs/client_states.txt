@@ -1,0 +1,33 @@
+logging in:
+    1) DISCONNECTED
+    2) CONNECTED - once connected to TCP
+    3) LOGGED IN / LOBBY - once logged in with nickname
+
+    actions:
+        1) login <nick> -> LOGGED IN / LOBBY
+        2) quit -> DISCONNECTED
+        3) resume -> IN GAME
+            -   returns a player to the unfinished game that he lost connection with
+            -   after confirmation if player wants to return (else end game)
+
+joining game:
+    1) AWAITING GAME - once joined a room, awaiting other player / game start
+    2) IN GAME - once game has started
+
+    actions:
+        1) list rooms - displays all rooms
+        2) join room <room> -> AWAITING GAME
+        3) leave room -> LOBBY (leaves while awaiting game)
+
+game:
+    1) MY TURN
+    2) OPP TURN - opponent turn
+    3) OPP DISCONNECT
+        -   notifies other user about opponent disconnect,
+        -   awaits his return, ends after 20s or when opponent refuses to return
+    4) GAME END
+
+    actions:
+        1) roll -> MY TURN
+        2) hold -> OPP TURN
+        3) quit -> GAME END

@@ -4,52 +4,83 @@
 #define MSG_MAX_LEN 256
 #include <stdio.h>
 
-extern const char* CMD_LOGIN;
-extern const char* CMD_LIST_ROOMS;
-extern const char* CMD_CREATE_ROOM;
-extern const char* CMD_JOIN_ROOM;
-extern const char* CMD_ROLL;
-extern const char* CMD_HOLD;
+// Commands from Client to Server
+
+#define C_LOGIN "LOGIN"
+
+#define C_RESUME "RESUME"
+
+#define C_LIST_ROOMS "LIST_ROOMS"
+
+#define C_CREATE_ROOM "CREATE_ROOM"
+
+#define C_JOIN_ROOM "JOIN_ROOM"
+
+#define C_LEAVE_ROOM "LEAVE_ROOM"
+
+#define C_ROLL "ROLL"
+
+#define C_HOLD "HOLD"
+
+#define C_QUIT "QUIT"
 
 
-typedef enum {
-    // General Messages
-    MSG_OK,
-    MSG_ERROR,
+// Commands from Server to Client
 
-    // Client to Server
-    MSG_LOGIN, // Payload: <nickname>
-    MSG_LIST_ROOMS,
-    MSG_CREATE_ROOM,
-    MSG_JOIN_ROOM, // Payload: <room_id>
-    MSG_LEAVE_GAME,
-    MSG_ROLL,
-    MSG_HOLD,
+#define S_ACK "ACK"
 
-    // Server to Client
-    MSG_WELCOME,
-    MSG_ROOM_LIST,
-    MSG_ROOM_CREATED,
-    MSG_JOIN_OK,
-    MSG_WAITING_FOR_OPPONENT,
-    MSG_GAME_START,
-    MSG_YOUR_TURN,
-    MSG_OPPONENT_TURN,
-    MSG_ROLLED,
-    MSG_BUST,
-    MSG_HELD,
-    MSG_SCORE_UPDATE,
-    MSG_GAME_WIN,
-    MSG_GAME_LOSE,
-    MSG_OPPONENT_DISCONNECTED
-} message_type;
+#define S_NACK "NACK"
 
-typedef struct {
-    message_type type;
-    char payload[MSG_MAX_LEN];
-} message;
+#define S_WELCOME "WELCOME"
 
-ssize_t send_payload(const int socket, const char *payload);
-ssize_t receive_command(const int socket, char *buffer);
+#define S_GAME_PAUSED "GAME_PAUSED"
+
+#define S_ROOM_INFO "ROOM_INFO"
+
+#define S_JOIN_OK "JOIN_OK"
+
+#define S_GAME_START "GAME_START"
+
+#define S_GAME_STATE "GAME_STATE"
+
+#define S_GAME_WIN "GAME_WIN"
+
+#define S_GAME_LOSE "GAME_LOSE"
+
+#define S_OPPONENT_DISCONNECTED "OPPONENT_DISCONNECTED"
+
+
+// Message Keys
+
+#define K_COMMAND "command"
+
+#define K_MSG "msg"
+
+#define K_NICKNAME "nickname"
+
+#define K_ROOM_ID "room_id"
+
+#define K_PLAYER_COUNT "player_count"
+
+#define K_MAX_PLAYERS "max_players"
+
+#define K_STATE "state"
+
+#define K_OPPONENT_NICK "opponent_nick"
+
+#define K_YOUR_TURN "your_turn"
+
+#define K_P1_SCORE "p1_score"
+
+#define K_P2_SCORE "p2_score"
+
+#define K_TURN_SCORE "turn_score"
+
+#define K_CURRENT_PLAYER "current_player"
+
+int send_ack(int socket, const char* command, const char* msg = NULL);
+int send_nack(int socket, const char* command, const char* msg);
+int send_structured_message(int socket, const char* command, int num_args, ...);
+ssize_t receive_command(const int socket, char* buffer);
 
 #endif // PROTOCOL_H

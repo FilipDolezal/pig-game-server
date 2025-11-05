@@ -1,10 +1,7 @@
 CMakeFiles/server.dir/src/game.c.o: \
  /home/fdolezal/fav/ups-sp/server/src/game.c /usr/include/stdc-predef.h \
  /home/fdolezal/fav/ups-sp/server/include/game.h \
- /home/fdolezal/fav/ups-sp/server/include/protocol.h \
- /home/fdolezal/fav/ups-sp/server/include/config.h \
- /home/fdolezal/fav/ups-sp/server/include/protocol.h \
- /home/fdolezal/fav/ups-sp/server/include/config.h /usr/include/stdio.h \
+ /home/fdolezal/fav/ups-sp/server/include/protocol.h /usr/include/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/features.h /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -26,7 +23,10 @@ CMakeFiles/server.dir/src/game.c.o: \
  /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
  /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
  /usr/include/x86_64-linux-gnu/bits/floatn.h \
- /usr/include/x86_64-linux-gnu/bits/floatn-common.h /usr/include/stdlib.h \
+ /usr/include/x86_64-linux-gnu/bits/floatn-common.h \
+ /home/fdolezal/fav/ups-sp/server/include/config.h \
+ /home/fdolezal/fav/ups-sp/server/include/protocol.h \
+ /home/fdolezal/fav/ups-sp/server/include/config.h /usr/include/stdlib.h \
  /usr/include/x86_64-linux-gnu/bits/waitflags.h \
  /usr/include/x86_64-linux-gnu/bits/waitstatus.h \
  /usr/include/x86_64-linux-gnu/sys/types.h \
