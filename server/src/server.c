@@ -60,17 +60,17 @@ void* game_thread_func(void* arg)
 				if (strcmp(command, C_ROLL) == 0)
 				{
 					handle_roll(&game);
-					send_structured_message(current_fd, S_ACK, 1, K_COMMAND, C_ROLL);
+					send_ack(current_fd, C_ROLL, NULL);
 				}
 				else if (strcmp(command, C_HOLD) == 0)
 				{
 					handle_hold(&game);
-					send_structured_message(current_fd, S_ACK, 1, K_COMMAND, C_HOLD);
+					send_ack(current_fd, C_HOLD, NULL);
 				}
 				else if (strcmp(command, C_QUIT) == 0)
 				{
 					game.game_over = 1;
-					send_structured_message(current_fd, S_ACK, 1, K_COMMAND, C_QUIT);
+					send_ack(current_fd, C_QUIT, NULL);
 					int other_player_idx = 1 - game.current_player;
 					if (room->players[other_player_idx]->socket != -1)
 					{
@@ -143,6 +143,8 @@ void* client_handler_thread(void* arg)
 	char buffer[MSG_MAX_LEN];
 	char nickname[NICKNAME_LEN] = {0};
 
+	// TODO: musíš to celé wrapnout do nekonečného cyklu
+
 	if (receive_command(client_socket, buffer) <= 0)
 	{
 		close(client_socket);
@@ -174,8 +176,10 @@ void* client_handler_thread(void* arg)
 	player = find_disconnected_player(nickname);
 	if (player)
 	{
-		send_structured_message(client_socket, S_GAME_PAUSED, 1, K_MSG,
-		                        "You have a game in progress. Send RESUME to rejoin or QUIT to abandon.");
+		send_structured_message(client_socket, S_GAME_PAUSED, 1,
+			K_MSG, "You have a game in progress. Send RESUME to rejoin or QUIT to abandon."
+		);
+
 		if (receive_command(client_socket, buffer) > 0)
 		{
 			command = strtok(buffer, "|");
@@ -184,12 +188,14 @@ void* client_handler_thread(void* arg)
 				player->socket = client_socket;
 				room_t* room = get_room(player->room_id);
 				room->state = IN_PROGRESS;
-				send_structured_message(client_socket, S_ACK, 2, K_COMMAND, C_RESUME, K_MSG, "Reconnected!");
+				send_ack(client_socket, C_RESUME, "Reconnected!");
 				int other_idx = (room->players[0] == player) ? 1 : 0;
+
 				if (room->players[other_idx]->socket != -1)
 				{
-					send_structured_message(room->players[other_idx]->socket, S_WELCOME, 1, K_MSG,
-					                        "Opponent reconnected.");
+					send_structured_message(room->players[other_idx]->socket, S_WELCOME, 1,
+						K_MSG, "Opponent reconnected."
+					);
 				}
 			}
 			else
@@ -216,12 +222,12 @@ void* client_handler_thread(void* arg)
 	player = add_player(client_socket);
 	if (!player)
 	{
-		send_structured_message(client_socket, S_NACK, 2, K_COMMAND, C_LOGIN, K_MSG, "Server is full.");
+		send_nack(client_socket, C_LOGIN, "Server is full.");
 		close(client_socket);
 		pthread_exit(NULL);
 	}
 	strcpy(player->nickname, nickname);
-	send_structured_message(client_socket, S_ACK, 1, K_COMMAND, C_LOGIN);
+	send_ack(client_socket, C_LOGIN, NULL);
 
 	while (player->state == LOBBY)
 	{
@@ -236,14 +242,19 @@ void* client_handler_thread(void* arg)
 
 		if (strcmp(command, C_LIST_ROOMS) == 0)
 		{
-			send_structured_message(client_socket, S_ACK, 1, K_COMMAND, C_LIST_ROOMS);
+			send_structured_message(client_socket, S_ACK, 2,
+				K_COMMAND, C_LIST_ROOMS,
+				K_NUMBER, MAX_ROOMS
+			);
+
 			for (int i = 0; i < MAX_ROOMS; ++i)
 			{
-				room_t* r = get_room(i);
+				const room_t* r = get_room(i);
 				char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
 				sprintf(id_str, "%d", r->id);
 				sprintf(p_count_str, "%d", r->player_count);
 				sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
+
 				switch (r->state)
 				{
 					case WAITING: strcpy(state_str, "WAITING");
@@ -255,23 +266,13 @@ void* client_handler_thread(void* arg)
 					case PAUSED: strcpy(state_str, "PAUSED");
 						break;
 				}
-				send_structured_message(client_socket, S_ROOM_INFO, 4, K_ROOM_ID, id_str, K_PLAYER_COUNT, p_count_str,
-				                        K_MAX_PLAYERS, max_p_str, K_STATE, state_str);
-			}
-		}
-		else if (strcmp(command, C_CREATE_ROOM) == 0)
-		{
-			int room_id = create_room(player);
-			if (room_id != -1)
-			{
-				char room_id_str[4];
-				sprintf(room_id_str, "%d", room_id);
-				send_structured_message(client_socket, S_ACK, 2, K_COMMAND, C_CREATE_ROOM, K_ROOM_ID, room_id_str);
-			}
-			else
-			{
-				send_structured_message(client_socket, S_NACK, 2, K_COMMAND, C_CREATE_ROOM, K_MSG,
-				                        "Max rooms reached.");
+
+				send_structured_message(client_socket, S_ROOM_INFO, 4,
+					K_ROOM_ID, id_str,
+					K_PLAYER_COUNT, p_count_str,
+				    K_MAX_PLAYERS, max_p_str,
+				    K_STATE, state_str
+				);
 			}
 		}
 		else if (strcmp(command, C_JOIN_ROOM) == 0)
@@ -284,7 +285,7 @@ void* client_handler_thread(void* arg)
 				int room_id = atoi(v);
 				if (join_room(room_id, player) == 0)
 				{
-					send_structured_message(client_socket, S_ACK, 1, K_COMMAND, C_JOIN_ROOM);
+					send_ack(client_socket, C_JOIN_ROOM, NULL);
 					room_t* room = get_room(room_id);
 					if (room->player_count == MAX_PLAYERS_PER_ROOM)
 					{
@@ -294,15 +295,14 @@ void* client_handler_thread(void* arg)
 				}
 				else
 				{
-					send_structured_message(client_socket, S_NACK, 2, K_COMMAND, C_JOIN_ROOM, K_MSG,
-					                        "Cannot join room.");
+					send_nack(client_socket, C_JOIN_ROOM, "Cannot join room.");
 				}
 			}
 		}
 		else if (strcmp(command, C_LEAVE_ROOM) == 0)
 		{
 			leave_room(player);
-			send_structured_message(client_socket, S_ACK, 1, K_COMMAND, C_LEAVE_ROOM);
+			send_ack(client_socket, C_LEAVE_ROOM, NULL);
 		}
 	}
 	pthread_exit(NULL);

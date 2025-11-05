@@ -12,12 +12,9 @@ int send_nack(const int socket, const char* command, const char* msg)
 
 int send_ack(const int socket, const char* command, const char* msg)
 {
-    if (msg == NULL)
-    {
-        return send_structured_message(socket, S_ACK, 1, K_COMMAND, command);
-    }
-
-    return send_structured_message(socket, S_ACK, 2, K_COMMAND, command, K_MSG, msg);
+    return msg
+           ? send_structured_message(socket, S_ACK, 2, K_COMMAND, command, K_MSG, msg)
+           : send_structured_message(socket, S_ACK, 1, K_COMMAND, command);
 }
 
 int send_structured_message(const int socket, const char* command, const int num_args, ...)

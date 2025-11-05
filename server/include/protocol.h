@@ -12,8 +12,6 @@
 
 #define C_LIST_ROOMS "LIST_ROOMS"
 
-#define C_CREATE_ROOM "CREATE_ROOM"
-
 #define C_JOIN_ROOM "JOIN_ROOM"
 
 #define C_LEAVE_ROOM "LEAVE_ROOM"
@@ -78,7 +76,9 @@
 
 #define K_CURRENT_PLAYER "current_player"
 
-int send_ack(int socket, const char* command, const char* msg = NULL);
+#define K_NUMBER "number"
+
+int send_ack(int socket, const char* command, const char* msg);
 int send_nack(int socket, const char* command, const char* msg);
 int send_structured_message(int socket, const char* command, int num_args, ...);
 ssize_t receive_command(const int socket, char* buffer);

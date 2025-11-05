@@ -73,42 +73,30 @@ void remove_player(player_t* player)
 	pthread_mutex_unlock(&lobby_mutex);
 }
 
-int create_room(player_t* player)
-{
-	pthread_mutex_lock(&lobby_mutex);
-	for (int i = 0; i < MAX_ROOMS; ++i)
-	{
-		if (rooms[i].state == WAITING)
-		{
-			rooms[i].state = FULL; // Mark as full to prevent others from creating it
-			rooms[i].players[0] = player;
-			rooms[i].player_count = 1;
-			player->state = IN_GAME;
-			player->room_id = i;
-			pthread_mutex_unlock(&lobby_mutex);
-			return i;
-		}
-	}
-	pthread_mutex_unlock(&lobby_mutex);
-	return -1;
-}
-
 int join_room(int room_id, player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
-	if (room_id < 0 || room_id >= MAX_ROOMS || rooms[room_id].state == IN_PROGRESS || rooms[room_id].player_count >=
-		MAX_PLAYERS_PER_ROOM)
+
+	if (
+		room_id < 0 ||
+		room_id >= MAX_ROOMS ||
+		rooms[room_id].state == IN_PROGRESS ||
+		rooms[room_id].player_count >= MAX_PLAYERS_PER_ROOM
+	)
 	{
 		pthread_mutex_unlock(&lobby_mutex);
 		return -1;
 	}
+
 	rooms[room_id].players[rooms[room_id].player_count++] = player;
 	player->state = IN_GAME;
 	player->room_id = room_id;
+
 	if (rooms[room_id].player_count == MAX_PLAYERS_PER_ROOM)
 	{
 		rooms[room_id].state = IN_PROGRESS;
 	}
+
 	pthread_mutex_unlock(&lobby_mutex);
 	return 0;
 }

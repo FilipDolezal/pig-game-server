@@ -42,7 +42,6 @@ typedef struct
 void init_lobby();
 player_t* add_player(int socket);
 void remove_player(player_t* player);
-int create_room(player_t* player);
 int join_room(int room_id, player_t* player);
 room_t* get_room(int room_id);
 void get_room_list(char* buffer, int max_len);
