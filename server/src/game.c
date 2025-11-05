@@ -17,7 +17,7 @@ void init_game(game_state *game, int p1_fd, int p2_fd) {
 }
 
 void handle_roll(game_state *game) {
-    int roll = (rand() % 6) + 1;
+    const int roll = (rand() % 6) + 1;
     char buffer[MSG_MAX_LEN];
 
     if (roll == 1) {

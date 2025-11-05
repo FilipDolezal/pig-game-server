@@ -2,6 +2,7 @@
 #define LOBBY_H
 
 #include <pthread.h>
+#include <time.h>
 #include "config.h"
 #include "game.h"
 
@@ -41,5 +42,6 @@ int create_room(player_t *player);
 int join_room(int room_id, player_t *player);
 room_t* get_room(int room_id);
 void get_room_list(char *buffer, int max_len);
+player_t* find_disconnected_player(const char *nickname);
 
 #endif // LOBBY_H

@@ -12,40 +12,63 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <pthread.h>
-
-// Global arrays for players and rooms, managed by lobby.c
-// These are declared extern in lobby.h
+#include <time.h>
 
 // Function prototypes for internal use
 void *client_handler_thread(void *arg);
 void *game_thread_func(void *arg);
 
-// --- Game Thread Function --- 
+// --- Game Thread Function ---
 void *game_thread_func(void *arg) {
     room_t *room = (room_t *)arg;
     game_state game;
 
-    // Initialize game with players from the room
     init_game(&game, room->players[0]->socket, room->players[1]->socket);
 
-    // Notify players that the game is starting
     char buffer[MSG_MAX_LEN];
     sprintf(buffer, "Game is starting! You are Player 1 (%s).", room->players[0]->nickname);
     send_payload(room->players[0]->socket, buffer);
     sprintf(buffer, "Game is starting! You are Player 2 (%s).", room->players[1]->nickname);
     send_payload(room->players[1]->socket, buffer);
 
-    // Start the first turn
-    switch_player(&game); 
+    switch_player(&game);
 
     while (!game.game_over) {
+        if (room->state == PAUSED) {
+            // Handle paused state
+            int disconnected_player_idx = -1;
+            for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i) {
+                if (room->players[i]->socket == -1) {
+                    disconnected_player_idx = i;
+                    break;
+                }
+            }
+
+            if (disconnected_player_idx != -1) {
+                if (time(NULL) - room->players[disconnected_player_idx]->disconnected_timestamp > RECONNECT_TIMEOUT) {
+                    // Timeout reached
+                    game.game_over = 1;
+                    int winner_idx = 1 - disconnected_player_idx;
+                    sprintf(buffer, "Your opponent failed to reconnect in time. You win!");
+                    send_payload(room->players[winner_idx]->socket, buffer);
+                    printf("Player %s timed out. Room %d is closing.\n", room->players[disconnected_player_idx]->nickname, room->id);
+                    break; // Exit the while loop
+                }
+            } else {
+                // Should not happen, but if it does, resume the game
+                room->state = IN_PROGRESS;
+            }
+            sleep(1); // Wait before checking again
+            continue; // Go to the next iteration of the while loop
+        }
+
         int current_fd = game.player_fds[game.current_player];
         char command_buffer[MSG_MAX_LEN];
 
         if (receive_command(current_fd, command_buffer) > 0) {
-            if (strcmp(command_buffer, "roll") == 0) {
+            if (strcmp(command_buffer, CMD_ROLL) == 0) {
                 handle_roll(&game);
-            } else if (strcmp(command_buffer, "hold") == 0) {
+            } else if (strcmp(command_buffer, CMD_HOLD) == 0) {
                 handle_hold(&game);
             } else {
                 sprintf(buffer, "Invalid command. Type 'roll' or 'hold'.");
@@ -53,21 +76,26 @@ void *game_thread_func(void *arg) {
             }
         } else {
             // Handle disconnection
-            game.game_over = 1;
             int disconnected_player_idx = game.current_player;
             int other_player_idx = 1 - disconnected_player_idx;
-            
-            sprintf(buffer, "Your opponent (%s) has disconnected. You win!", room->players[disconnected_player_idx]->nickname);
-            send_payload(game.player_fds[other_player_idx], buffer);
-            printf("Player %s disconnected.\n", room->players[disconnected_player_idx]->nickname);
+
+            room->state = PAUSED;
+            room->players[disconnected_player_idx]->socket = -1;
+            room->players[disconnected_player_idx]->disconnected_timestamp = time(NULL);
+
+            sprintf(buffer, "Your opponent (%s) has disconnected. The game is paused. Waiting for them to reconnect...", room->players[disconnected_player_idx]->nickname);
+            send_payload(room->players[other_player_idx]->socket, buffer);
+            printf("Player %s disconnected. Game in room %d is paused.\n", room->players[disconnected_player_idx]->nickname, room->id);
         }
     }
 
     // Game over, clean up room and players
-    close(room->players[0]->socket);
-    close(room->players[1]->socket);
-    remove_player(room->players[0]);
-    remove_player(room->players[1]);
+    for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i) {
+        if (room->players[i]->socket != -1) {
+            close(room->players[i]->socket);
+        }
+        remove_player(room->players[i]);
+    }
 
     room->state = WAITING;
     room->player_count = 0;
@@ -78,46 +106,68 @@ void *game_thread_func(void *arg) {
     pthread_exit(NULL);
 }
 
-// --- Client Handler Thread Function --- 
+// --- Client Handler Thread Function ---
 void *client_handler_thread(void *arg) {
     int client_socket = *(int *)arg;
-    free(arg); // Free the dynamically allocated socket descriptor
-
-    player_t *player = add_player(client_socket);
-    if (!player) {
-        send_payload(client_socket, "Server is full. Connection rejected.");
-        close(client_socket);
-        pthread_exit(NULL);
-    }
+    free(arg);
 
     char buffer[MSG_MAX_LEN];
-    send_payload(client_socket, "Welcome to the lobby! Please login with: LOGIN <nickname>");
+    send_payload(client_socket, "Welcome! Please login with: LOGIN <nickname>");
 
-    // State: Awaiting Login
-    while (player->nickname[0] == '\0') { // Nickname not set
+    char nickname[NICKNAME_LEN] = {0};
+    while (nickname[0] == '\0') {
         if (receive_command(client_socket, buffer) <= 0) {
             printf("Client disconnected before login.\n");
-            remove_player(player);
             close(client_socket);
             pthread_exit(NULL);
         }
-        if (strncmp(buffer, "LOGIN ", 6) == 0) {
-            char *nickname = buffer + 6;
-            if (strlen(nickname) > 0 && strlen(nickname) < NICKNAME_LEN) {
-                // Check if nickname is already taken (simplified check)
-                // For a real game, this would involve iterating through all active players
-                strcpy(player->nickname, nickname);
-                sprintf(buffer, "Welcome, %s! Type LIST_ROOMS, CREATE_ROOM, or JOIN_ROOM <id>.", player->nickname);
-                send_payload(client_socket, buffer);
-            } else {
-                send_payload(client_socket, "Invalid nickname. Max length 31 characters.");
-            }
+        char command[MSG_MAX_LEN];
+        char arg1[MSG_MAX_LEN];
+        int items = sscanf(buffer, "%s %s", command, arg1);
+        if (items >= 2 && strcmp(command, CMD_LOGIN) == 0) {
+            strncpy(nickname, arg1, NICKNAME_LEN - 1);
         } else {
             send_payload(client_socket, "Please login first with: LOGIN <nickname>");
         }
     }
 
-    // State: In Lobby, processing commands
+    player_t *player = find_disconnected_player(nickname);
+    if (player) {
+        // Reconnecting player
+        player->socket = client_socket;
+        room_t *room = get_room(player->room_id);
+        room->state = IN_PROGRESS;
+        sprintf(buffer, "Reconnected to your game in room %d!", player->room_id);
+        send_payload(client_socket, buffer);
+        
+        // Notify the other player
+        int other_player_idx = -1;
+        for(int i=0; i<MAX_PLAYERS_PER_ROOM; ++i) {
+            if(room->players[i] != player) {
+                other_player_idx = i;
+                break;
+            }
+        }
+        if(other_player_idx != -1) {
+            sprintf(buffer, "Player %s has reconnected! The game will resume.", player->nickname);
+            send_payload(room->players[other_player_idx]->socket, buffer);
+        }
+
+        pthread_exit(NULL); // This thread is done, game thread handles it now
+    }
+
+    // New player
+    player = add_player(client_socket);
+    if (!player) {
+        send_payload(client_socket, "Server is full. Connection rejected.");
+        close(client_socket);
+        pthread_exit(NULL);
+    }
+    strcpy(player->nickname, nickname);
+
+    sprintf(buffer, "Welcome, %s! Type LIST_ROOMS, CREATE_ROOM, or JOIN_ROOM <id>.", player->nickname);
+    send_payload(client_socket, buffer);
+
     while (player->state == LOBBY) {
         if (receive_command(client_socket, buffer) <= 0) {
             printf("Player %s disconnected from lobby.\n", player->nickname);
@@ -126,10 +176,14 @@ void *client_handler_thread(void *arg) {
             pthread_exit(NULL);
         }
 
-        if (strcmp(buffer, "LIST_ROOMS") == 0) {
+        char command[MSG_MAX_LEN];
+        char arg1[MSG_MAX_LEN];
+        int items = sscanf(buffer, "%s %s", command, arg1);
+
+        if (items >= 1 && strcmp(command, CMD_LIST_ROOMS) == 0) {
             get_room_list(buffer, BUFFER_SIZE);
             send_payload(client_socket, buffer);
-        } else if (strcmp(buffer, "CREATE_ROOM") == 0) {
+        } else if (items >= 1 && strcmp(command, CMD_CREATE_ROOM) == 0) {
             int room_id = create_room(player);
             if (room_id != -1) {
                 sprintf(buffer, "Room %d created. Waiting for another player...", room_id);
@@ -137,12 +191,11 @@ void *client_handler_thread(void *arg) {
             } else {
                 send_payload(client_socket, "Could not create room. Max rooms reached.");
             }
-        } else if (strncmp(buffer, "JOIN_ROOM ", 10) == 0) {
-            int room_id = atoi(buffer + 10);
+        } else if (items >= 2 && strcmp(command, CMD_JOIN_ROOM) == 0) {
+            int room_id = atoi(arg1);
             if (join_room(room_id, player) == 0) {
                 room_t *room = get_room(room_id);
                 if (room->player_count == MAX_PLAYERS_PER_ROOM) {
-                    // Room is full, start game thread
                     pthread_create(&room->game_thread, NULL, game_thread_func, (void *)room);
                     pthread_detach(room->game_thread);
                 } else {
@@ -157,20 +210,15 @@ void *client_handler_thread(void *arg) {
         }
     }
 
-    // If player state changes to IN_GAME, this thread's lobby duties are done.
-    // The game_thread_func will handle game communication.
-    // This thread will now just wait for the game to end or player to disconnect.
-    // For now, we'll just exit this thread. A more robust solution might keep it alive
-    // to handle post-game lobby return or in-game chat.
     pthread_exit(NULL);
 }
 
-// --- Main Server Loop --- 
+// --- Main Server Loop ---
 int run_server(int port) {
     int server_fd;
     struct sockaddr_in server_addr;
 
-    init_lobby(); // Initialize the lobby system
+    init_lobby();
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
@@ -196,7 +244,7 @@ int run_server(int port) {
         return -1;
     }
 
-    if (listen(server_fd, MAX_PLAYERS) < 0) { // Listen for MAX_PLAYERS connections
+    if (listen(server_fd, MAX_PLAYERS) < 0) {
         perror("listen()");
         close(server_fd);
         return -1;
@@ -227,7 +275,7 @@ int run_server(int port) {
             close(*client_socket);
             free(client_socket);
         }
-        pthread_detach(tid); // Detach thread to clean up resources automatically
+        pthread_detach(tid);
     }
 
     close(server_fd);

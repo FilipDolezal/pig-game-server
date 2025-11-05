@@ -61,10 +61,3 @@ To run the server, execute `./bin/server [port]`.
     *   `hold`: End your turn and add your turn score to your total score.
 
 7.  **Game Rules:**
-    *   The first player to reach 100 points wins.
-    *   On your turn, you can choose to `roll` or `hold`.
-    *   **Roll:**
-        *   If you roll a 1, your turn score becomes 0, and it's the next player's turn.
-        *   If you roll a 2-6, the number is added to your current turn score. You can then choose to roll again or hold.
-    *   **Hold:**
-        *   Your current turn score is added to your total score, and it's the next player's turn.

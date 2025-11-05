@@ -2,6 +2,15 @@
 #define PROTOCOL_H
 
 #define MSG_MAX_LEN 256
+#include <stdio.h>
+
+extern const char* CMD_LOGIN;
+extern const char* CMD_LIST_ROOMS;
+extern const char* CMD_CREATE_ROOM;
+extern const char* CMD_JOIN_ROOM;
+extern const char* CMD_ROLL;
+extern const char* CMD_HOLD;
+
 
 typedef enum {
     // General Messages
@@ -40,7 +49,7 @@ typedef struct {
     char payload[MSG_MAX_LEN];
 } message;
 
-int send_payload(int socket, const char *payload);
-int receive_command(int socket, char *buffer);
+ssize_t send_payload(const int socket, const char *payload);
+ssize_t receive_command(const int socket, char *buffer);
 
 #endif // PROTOCOL_H
