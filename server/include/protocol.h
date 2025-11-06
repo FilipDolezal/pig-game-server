@@ -2,6 +2,8 @@
 #define PROTOCOL_H
 
 #define MSG_MAX_LEN 256
+#include <game.h>
+#include <lobby.h>
 #include <stdio.h>
 
 // Commands from Client to Server
@@ -22,30 +24,35 @@
 
 #define C_QUIT "QUIT"
 
+typedef enum
+{
+	S_OK,
+	S_ERROR,
+	S_WELCOME,
+	S_GAME_PAUSED,
+	S_ROOM_LIST,
+	S_ROOM_INFO,
+	S_JOIN_OK,
+	S_GAME_START,
+	S_GAME_STATE,
+	S_GAME_WIN,
+	S_GAME_LOSE,
+	S_OPPONENT_DISCONNECTED,
+	S_OPPONENT_RECONNECTED,
+} server_command_t;
 
-// Commands from Server to Client
+typedef enum
+{
+	E_INVALID_COMMAND,
+	E_INVALID_NICKNAME,
+	E_SERVER_FULL,
+	E_ROOM_FULL,
+	E_GAME_IN_PROGRESS,
+	E_CANNOT_JOIN,
+	E_OPPONENT_QUIT,
+	E_OPPONENT_TIMEOUT,
+} server_error_t;
 
-#define S_ACK "ACK"
-
-#define S_NACK "NACK"
-
-#define S_WELCOME "WELCOME"
-
-#define S_GAME_PAUSED "GAME_PAUSED"
-
-#define S_ROOM_INFO "ROOM_INFO"
-
-#define S_JOIN_OK "JOIN_OK"
-
-#define S_GAME_START "GAME_START"
-
-#define S_GAME_STATE "GAME_STATE"
-
-#define S_GAME_WIN "GAME_WIN"
-
-#define S_GAME_LOSE "GAME_LOSE"
-
-#define S_OPPONENT_DISCONNECTED "OPPONENT_DISCONNECTED"
 
 
 // Message Keys
@@ -68,9 +75,9 @@
 
 #define K_YOUR_TURN "your_turn"
 
-#define K_P1_SCORE "p1_score"
+#define K_MY_SCORE "my_score"
 
-#define K_P2_SCORE "p2_score"
+#define K_OPP_SCORE "opp_score"
 
 #define K_TURN_SCORE "turn_score"
 
@@ -78,9 +85,13 @@
 
 #define K_NUMBER "number"
 
-int send_ack(int socket, const char* command, const char* msg);
-int send_nack(int socket, const char* command, const char* msg);
-int send_structured_message(int socket, const char* command, int num_args, ...);
+#define K_ROLL "roll"
+
+
+int send_error(int socket, server_error_t error);
+
+int send_structured_message(int socket, server_command_t command, int num_args, ...);
+
 ssize_t receive_command(const int socket, char* buffer);
 
 #endif // PROTOCOL_H

@@ -65,4 +65,5 @@ CMakeFiles/server.dir/src/main.c.o: \
  /home/fdolezal/fav/ups-sp/server/include/config.h \
  /home/fdolezal/fav/ups-sp/server/include/game.h \
  /home/fdolezal/fav/ups-sp/server/include/protocol.h \
+ /home/fdolezal/fav/ups-sp/server/include/game.h \
  /home/fdolezal/fav/ups-sp/server/include/config.h

@@ -171,23 +171,3 @@ void leave_room(player_t* player)
 	pthread_mutex_unlock(&lobby_mutex);
 }
 
-void get_room_list(char* buffer, int max_len)
-{
-	pthread_mutex_lock(&lobby_mutex);
-	int offset = snprintf(buffer, max_len, "Available Rooms:\n");
-	for (int i = 0; i < MAX_ROOMS; ++i)
-	{
-		if (rooms[i].state != IN_PROGRESS)
-		{
-			// Only show rooms not in progress
-			const char* status = "Waiting";
-			if (rooms[i].player_count == MAX_PLAYERS_PER_ROOM)
-			{
-				status = "Full";
-			}
-			offset += snprintf(buffer + offset, max_len - offset, "  Room %d: %d/%d players (%s)\n",
-			                   rooms[i].id, rooms[i].player_count, MAX_PLAYERS_PER_ROOM, status);
-		}
-	}
-	pthread_mutex_unlock(&lobby_mutex);
-}

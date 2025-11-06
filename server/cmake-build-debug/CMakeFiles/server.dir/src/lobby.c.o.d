@@ -40,7 +40,8 @@ CMakeFiles/server.dir/src/lobby.c.o: \
  /usr/include/x86_64-linux-gnu/bits/pthread_stack_min.h \
  /home/fdolezal/fav/ups-sp/server/include/config.h \
  /home/fdolezal/fav/ups-sp/server/include/game.h \
- /home/fdolezal/fav/ups-sp/server/include/protocol.h /usr/include/stdio.h \
+ /home/fdolezal/fav/ups-sp/server/include/protocol.h \
+ /home/fdolezal/fav/ups-sp/server/include/game.h /usr/include/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdarg.h \
  /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h \

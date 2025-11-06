@@ -10,6 +10,7 @@ typedef struct
     int scores[2];
     int current_player;
     int turn_score;
+    int roll_result;
     int game_over;
 } game_state;
 
