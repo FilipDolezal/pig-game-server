@@ -78,15 +78,13 @@ void send_player_to_lobby(player_t* player)
 void remove_player(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
-	if (player->socket != -1)
-	{
-		player->socket = -1;
-		player->nickname[0] = '\0';
-		player->state = LOBBY;
-		player->room_id = -1;
-		player_count--;
-	}
-	pthread_mutex_unlock(&lobby_mutex);
+			if (player->socket != -1)
+			{
+				player->socket = -1;
+				player->state = LOBBY;
+				player->room_id = -1;
+				player_count--;
+			}	pthread_mutex_unlock(&lobby_mutex);
 }
 
 int join_room(int room_id, player_t* player)

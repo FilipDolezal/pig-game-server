@@ -13,13 +13,13 @@
 #include <sys/socket.h>
 #include <pthread.h>
 #include <time.h>
+#include <errno.h>
 
 void* game_thread_func(void* arg)
 {
 	room_t* room = (room_t*)arg;
 	game_state game;
 
-	/// initialize game, then broadcast game start to both players
 	init_game(&game, room->players[0]->socket, room->players[1]->socket);
 	broadcast_game_start(room, game.current_player);
 
@@ -28,7 +28,12 @@ void* game_thread_func(void* arg)
 		pthread_mutex_lock(&room->mutex);
 		while (room->state == PAUSED)
 		{
-			if (time(NULL) - room->players[(room->players[0]->socket == -1) ? 0 : 1]->disconnected_timestamp > RECONNECT_TIMEOUT)
+			struct timespec ts;
+			clock_gettime(CLOCK_REALTIME, &ts);
+			ts.tv_sec += RECONNECT_TIMEOUT;
+
+			int result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
+			if (result == ETIMEDOUT)
 			{
 				game.game_over = 1;
 				int winner_idx = 1 - ((room->players[0]->socket == -1) ? 0 : 1);
@@ -36,11 +41,20 @@ void* game_thread_func(void* arg)
 				{
 					send_error(room->players[winner_idx]->socket, E_OPPONENT_TIMEOUT);
 				}
-									pthread_mutex_unlock(&room->mutex);
-									break;			}
-			pthread_cond_wait(&room->cond, &room->mutex);
+				break; // Exit the PAUSED loop
+			}
 		}
 		pthread_mutex_unlock(&room->mutex);
+
+		if (room->state == ABORTED)
+		{
+			game.game_over = 1;
+		}
+
+		if (game.game_over)
+		{
+			break; // Exit the main game loop
+		}
 
 		const int current_fd = game.player_fds[game.current_player];
 		char command_buffer[MSG_MAX_LEN];
@@ -76,13 +90,17 @@ void* game_thread_func(void* arg)
 		{
 			const int disconnected_player_idx = game.current_player;
 			const int other_player_idx = 1 - disconnected_player_idx;
-			room->state = PAUSED;
-			room->players[disconnected_player_idx]->socket = -1;
-			room->players[disconnected_player_idx]->disconnected_timestamp = time(NULL);
+
 			if (room->players[other_player_idx]->socket != -1)
 			{
 				send_structured_message(room->players[other_player_idx]->socket, S_OPPONENT_DISCONNECTED, 0);
 			}
+
+			pthread_mutex_lock(&room->mutex);
+			room->state = PAUSED;
+			room->players[disconnected_player_idx]->socket = -1;
+			room->players[disconnected_player_idx]->disconnected_timestamp = time(NULL);
+			pthread_mutex_unlock(&room->mutex);
 		}
 	}
 
@@ -92,7 +110,6 @@ void* game_thread_func(void* arg)
 		{
 			close(room->players[i]->socket);
 		}
-		remove_player(room->players[i]);
 	}
 	room->state = WAITING;
 	room->player_count = 0;
@@ -209,9 +226,11 @@ void* client_handler_thread(void* arg)
 			{
 				// End the paused game
 				pthread_mutex_lock(&room->mutex);
-				room->state = WAITING;
+				room->state = ABORTED;
 				pthread_cond_signal(&room->cond);
 				pthread_mutex_unlock(&room->mutex);
+
+				pthread_join(room->game_thread, NULL);
 
 				if (room->players[other_idx]->socket != -1)
 				{
@@ -273,6 +292,8 @@ void* client_handler_thread(void* arg)
 					case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
 						break;
 					case PAUSED: strcpy(state_str, "PAUSED");
+						break;
+					case ABORTED: strcpy(state_str, "ABORTED");
 						break;
 				}
 

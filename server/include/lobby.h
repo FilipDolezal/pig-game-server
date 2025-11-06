@@ -17,7 +17,8 @@ typedef enum
 	WAITING,
 	FULL,
 	IN_PROGRESS,
-	PAUSED
+	PAUSED,
+	ABORTED
 } room_state;
 
 typedef struct
