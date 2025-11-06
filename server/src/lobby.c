@@ -28,6 +28,8 @@ void init_lobby()
 		{
 			rooms[i].players[j] = NULL;
 		}
+		pthread_mutex_init(&rooms[i].mutex, NULL);
+		pthread_cond_init(&rooms[i].cond, NULL);
 	}
 	player_count = 0;
 	pthread_mutex_unlock(&lobby_mutex);

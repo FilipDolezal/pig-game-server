@@ -25,22 +25,22 @@ void* game_thread_func(void* arg)
 
 	while (!game.game_over)
 	{
-		if (room->state == PAUSED)
+		pthread_mutex_lock(&room->mutex);
+		while (room->state == PAUSED)
 		{
-			int disconnected_player_idx = (room->players[0]->socket == -1) ? 0 : 1;
-			if (time(NULL) - room->players[disconnected_player_idx]->disconnected_timestamp > RECONNECT_TIMEOUT)
+			if (time(NULL) - room->players[(room->players[0]->socket == -1) ? 0 : 1]->disconnected_timestamp > RECONNECT_TIMEOUT)
 			{
 				game.game_over = 1;
-				int winner_idx = 1 - disconnected_player_idx;
+				int winner_idx = 1 - ((room->players[0]->socket == -1) ? 0 : 1);
 				if (room->players[winner_idx]->socket != -1)
 				{
 					send_error(room->players[winner_idx]->socket, E_OPPONENT_TIMEOUT);
 				}
-				break;
-			}
-			sleep(1);
-			continue;
+									pthread_mutex_unlock(&room->mutex);
+									break;			}
+			pthread_cond_wait(&room->cond, &room->mutex);
 		}
+		pthread_mutex_unlock(&room->mutex);
 
 		const int current_fd = game.player_fds[game.current_player];
 		char command_buffer[MSG_MAX_LEN];
@@ -190,18 +190,29 @@ void* client_handler_thread(void* arg)
 
 			if (command && strcmp(command, C_RESUME) == 0)
 			{
+				pthread_mutex_lock(&room->mutex);
 				player->socket = client_socket;
 				room->state = IN_PROGRESS;
+				pthread_cond_signal(&room->cond);
+				pthread_mutex_unlock(&room->mutex);
+
 				send_structured_message(client_socket, S_OK, 0);
 
 				if (room->players[other_idx]->socket != -1)
 				{
 					send_structured_message(room->players[other_idx]->socket, S_OPPONENT_RECONNECTED, 0);
 				}
+
+				pthread_join(room->game_thread, NULL);
 			}
 			else
 			{
 				// End the paused game
+				pthread_mutex_lock(&room->mutex);
+				room->state = WAITING;
+				pthread_cond_signal(&room->cond);
+				pthread_mutex_unlock(&room->mutex);
+
 				if (room->players[other_idx]->socket != -1)
 				{
 					send_error(room->players[other_idx]->socket, E_OPPONENT_QUIT);
@@ -211,7 +222,6 @@ void* client_handler_thread(void* arg)
 				remove_player(room->players[0]);
 				remove_player(room->players[1]);
 
-				room->state = WAITING;
 				room->player_count = 0;
 				close(client_socket);
 			}
@@ -285,13 +295,12 @@ void* client_handler_thread(void* arg)
 				if (join_room(room_id, player) == 0)
 				{
 					send_structured_message(client_socket, S_JOIN_OK, 0);
-					room_t* room = get_room(room_id);
-					if (room->player_count == MAX_PLAYERS_PER_ROOM)
-					{
-						pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
-						pthread_detach(room->game_thread);
-					}
-				}
+											room_t* room = get_room(room_id);
+											if (room->player_count == MAX_PLAYERS_PER_ROOM)
+											{
+												pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
+												pthread_join(room->game_thread, NULL);
+											}				}
 				else
 				{
 					send_error(client_socket, E_CANNOT_JOIN);
@@ -377,7 +386,5 @@ int run_server(const int port)
 			free(client_socket);
 		}
 
-		// Detach the thread so its resources are automatically reclaimed upon termination
-		pthread_detach(tid);
 	}
 }

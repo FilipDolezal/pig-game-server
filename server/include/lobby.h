@@ -36,6 +36,8 @@ typedef struct
 	player_t* players[MAX_PLAYERS_PER_ROOM];
 	int player_count;
 	pthread_t game_thread;
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
 } room_t;
 
 // Function declarations
