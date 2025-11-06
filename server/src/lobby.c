@@ -33,7 +33,7 @@ void init_lobby()
 	pthread_mutex_unlock(&lobby_mutex);
 }
 
-player_t* add_player(int socket)
+player_t* add_player(const int socket)
 {
 	pthread_mutex_lock(&lobby_mutex);
 	if (player_count >= MAX_PLAYERS)
@@ -58,12 +58,26 @@ player_t* add_player(int socket)
 	return NULL;
 }
 
+void send_player_to_lobby(player_t* player)
+{
+	pthread_mutex_lock(&lobby_mutex);
+	if (player->socket != -1)
+	{
+		room_t room = rooms[player->room_id];
+		room.player_count--;
+		// room.players[];
+
+		player->state = LOBBY;
+		player->room_id = -1;
+	}
+	pthread_mutex_unlock(&lobby_mutex);
+}
+
 void remove_player(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
 	if (player->socket != -1)
 	{
-		// Only remove if player is valid
 		player->socket = -1;
 		player->nickname[0] = '\0';
 		player->state = LOBBY;

@@ -143,8 +143,6 @@ void* client_handler_thread(void* arg)
 	char buffer[MSG_MAX_LEN];
 	char nickname[NICKNAME_LEN] = {0};
 
-	// TODO: musíš to celé wrapnout do nekonečného cyklu
-
 	if (receive_command(client_socket, buffer) <= 0)
 	{
 		close(client_socket);
@@ -157,8 +155,8 @@ void* client_handler_thread(void* arg)
 		char* payload = strtok(NULL, "");
 		if (payload)
 		{
-			char* key = strtok(payload, ":");
-			char* value = strtok(NULL, ":");
+			const char* key = strtok(payload, ":");
+			const char* value = strtok(NULL, ":");
 			if (key && value && strcmp(key, K_NICKNAME) == 0)
 			{
 				strncpy(nickname, value, NICKNAME_LEN - 1);
@@ -173,44 +171,43 @@ void* client_handler_thread(void* arg)
 		pthread_exit(NULL);
 	}
 
+	// lookup nickname in the disconnected player pool
 	player = find_disconnected_player(nickname);
+
 	if (player)
 	{
-		send_structured_message(client_socket, S_GAME_PAUSED, 1,
-			K_MSG, "You have a game in progress. Send RESUME to rejoin or QUIT to abandon."
-		);
+		send_structured_message(client_socket, S_GAME_PAUSED, 1, K_MSG, "You have a game in progress. Send RESUME to rejoin or QUIT to abandon.");
+
+		room_t* room = get_room(player->room_id);
+		const int other_idx = (room->players[0] == player) ? 1 : 0;
 
 		if (receive_command(client_socket, buffer) > 0)
 		{
 			command = strtok(buffer, "|");
+
 			if (command && strcmp(command, C_RESUME) == 0)
 			{
 				player->socket = client_socket;
-				room_t* room = get_room(player->room_id);
 				room->state = IN_PROGRESS;
 				send_ack(client_socket, C_RESUME, "Reconnected!");
-				int other_idx = (room->players[0] == player) ? 1 : 0;
 
 				if (room->players[other_idx]->socket != -1)
 				{
-					send_structured_message(room->players[other_idx]->socket, S_WELCOME, 1,
-						K_MSG, "Opponent reconnected."
-					);
+					send_structured_message(room->players[other_idx]->socket, S_WELCOME, 1, K_MSG, "Opponent reconnected.");
 				}
 			}
 			else
 			{
 				// End the paused game
-				room_t* room = get_room(player->room_id);
-				int other_idx = (room->players[0] == player) ? 1 : 0;
 				if (room->players[other_idx]->socket != -1)
 				{
-					send_structured_message(room->players[other_idx]->socket, S_GAME_WIN, 1, K_MSG,
-					                        "Opponent abandoned the game.");
+					send_structured_message(room->players[other_idx]->socket, S_GAME_WIN, 1, K_MSG, "Opponent abandoned the game.");
 					close(room->players[other_idx]->socket);
 				}
+
 				remove_player(room->players[0]);
 				remove_player(room->players[1]);
+
 				room->state = WAITING;
 				room->player_count = 0;
 				close(client_socket);
