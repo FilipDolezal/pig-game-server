@@ -116,7 +116,7 @@ This section lists new findings from a second code review.
     - **Suggestion:** Remove the declaration from `lobby.h`.
 
 ### `parser.c`
-- [ ] **Thread-Safety of `strtok`:** The parser uses `strtok`, which is not re-entrant and can be problematic in multithreaded applications.
+- [x] **Thread-Safety of `strtok`:** The parser uses `strtok`, which is not re-entrant and can be problematic in multithreaded applications.
     - **Suggestion (High Priority):** Replace `strtok` with the thread-safe `strtok_r`.
 
 ### `server.c`
