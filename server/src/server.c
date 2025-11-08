@@ -25,18 +25,24 @@ void* game_thread_func(void* arg)
 
 	while (!game.game_over)
 	{
+		// Lock the room's mutex to safely check and modify its state
 		pthread_mutex_lock(&room->mutex);
 		while (room->state == PAUSED)
 		{
+			// Set a timeout for a player to reconnect
 			struct timespec ts;
 			clock_gettime(CLOCK_REALTIME, &ts);
 			ts.tv_sec += RECONNECT_TIMEOUT;
 
-			int result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
+			// Wait for a signal that a player has reconnected, or for the timeout to expire
+			const int result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
+			// If the wait timed out, the game is over
 			if (result == ETIMEDOUT)
 			{
 				game.game_over = 1;
-				int winner_idx = 1 - ((room->players[0]->socket == -1) ? 0 : 1);
+				// Determine the winner (the player who is still connected)
+				const int winner_idx = room->players[0]->socket == -1 ? 1 : 0;
+				// If the winner is still connected, notify them that their opponent timed out
 				if (room->players[winner_idx]->socket != -1)
 				{
 					send_error(room->players[winner_idx]->socket, E_OPPONENT_TIMEOUT);
@@ -44,66 +50,125 @@ void* game_thread_func(void* arg)
 				break; // Exit the PAUSED loop
 			}
 		}
+		// Unlock the room's mutex
 		pthread_mutex_unlock(&room->mutex);
 
+		// If the room state was changed to ABORTED (e.g., by a player leaving), end the game
 		if (room->state == ABORTED)
 		{
 			game.game_over = 1;
 		}
 
+		// If the game is over for any reason, break out of the main loop
 		if (game.game_over)
 		{
 			break; // Exit the main game loop
 		}
 
-		const int current_fd = game.player_fds[game.current_player];
-		char command_buffer[MSG_MAX_LEN];
+		// set of file descriptors to listen to them at the same time
+		fd_set read_fds;
 
-		if (receive_command(current_fd, command_buffer) > 0)
+		// zero out the set
+		FD_ZERO(&read_fds);
+
+		// set up set with player sockets
+		FD_SET(game.player_fds[0], &read_fds);
+		FD_SET(game.player_fds[1], &read_fds);
+
+		// Set a short timeout for select() to make the loop non-blocking
+		struct timeval tv;
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
+
+		// Wait for activity on any of the player sockets
+		const int activity = select(
+			// Find the highest file descriptor for select()
+			(game.player_fds[0] > game.player_fds[1] ? game.player_fds[0] : game.player_fds[1]) + 1,
+			&read_fds, NULL, NULL, &tv
+		);
+
+		// Handle select() errors
+		if ((activity < 0) && (errno != EINTR))
 		{
-			const char* command = strtok(command_buffer, "|");
-			if (command)
+			printf("select error");
+		}
+
+		// If there was activity on a socket
+		if (activity > 0)
+		{
+			// Iterate through the players to see who sent data
+			for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
 			{
-				if (strcmp(command, C_ROLL) == 0)
+				// Check if this player's socket has data to be read
+				if (FD_ISSET(game.player_fds[i], &read_fds))
 				{
-					handle_roll(&game);
-				}
-				else if (strcmp(command, C_HOLD) == 0)
-				{
-					handle_hold(&game);
-				}
-				else if (strcmp(command, C_QUIT) == 0)
-				{
-					game.game_over = 1;
-					send_structured_message(current_fd, S_OK, 0);
-					int other_player_idx = 1 - game.current_player;
-					if (room->players[other_player_idx]->socket != -1)
+					player_t* sending_player = room->players[i];
+					const player_t* other_player = room->players[1 - i];
+					char command_buffer[MSG_MAX_LEN];
+
+					if (receive_command(game.player_fds[i], command_buffer) > 0)
 					{
-						send_error(room->players[other_player_idx]->socket, E_OPPONENT_QUIT);
+						// Parse the command
+						const char* command = strtok(command_buffer, "|");
+
+						if (strcmp(command, C_QUIT) == 0)
+						{
+							game.game_over = 1;
+							// todo: turn other player to winner
+							send_structured_message(sending_player->socket, S_OK, 0);
+
+							if (other_player->socket != -1)
+							{
+								// Notify the other player that the opponent has quit
+								send_error(other_player->socket, E_OPPONENT_QUIT);
+							}
+						}
+
+						// Check if it's the current player's turn
+						if(i == game.current_player)
+						{
+							// Handle the 'ROLL' command
+							if (strcmp(command, C_ROLL) == 0)
+							{
+								handle_roll(&game);
+							}
+							// Handle the 'HOLD' command
+							else if (strcmp(command, C_HOLD) == 0)
+							{
+								handle_hold(&game);
+							}
+
+							// After handling the command, broadcast the updated game state to both players
+							broadcast_game_state(room, &game);
+						}
+					}
+					else
+					{
+						// treating this as disconnect
+						if (other_player->socket != -1)
+						{
+							// Notify the other player about the disconnection
+							send_structured_message(other_player->socket, S_OPPONENT_DISCONNECTED, 0);
+						}
+
+						// Lock the room mutex to update its state
+						pthread_mutex_lock(&room->mutex);
+
+						// Set the room state to PAUSED
+						room->state = PAUSED;
+						// Mark the player's socket as invalid (-1)
+						sending_player->socket = -1;
+						// Record the time of disconnection
+						sending_player->disconnected_timestamp = time(NULL);
+
+						pthread_mutex_unlock(&room->mutex);
 					}
 				}
-
-				broadcast_game_state(room, &game);
 			}
-		}
-		else
-		{
-			const int disconnected_player_idx = game.current_player;
-			const int other_player_idx = 1 - disconnected_player_idx;
-
-			if (room->players[other_player_idx]->socket != -1)
-			{
-				send_structured_message(room->players[other_player_idx]->socket, S_OPPONENT_DISCONNECTED, 0);
-			}
-
-			pthread_mutex_lock(&room->mutex);
-			room->state = PAUSED;
-			room->players[disconnected_player_idx]->socket = -1;
-			room->players[disconnected_player_idx]->disconnected_timestamp = time(NULL);
-			pthread_mutex_unlock(&room->mutex);
 		}
 	}
 
+	// After the game loop ends, close the sockets of any remaining players
 	for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
 	{
 		if (room->players[i] && room->players[i]->socket != -1)
@@ -111,8 +176,10 @@ void* game_thread_func(void* arg)
 			close(room->players[i]->socket);
 		}
 	}
+	// Reset the room to a WAITING state for new players
 	room->state = WAITING;
 	room->player_count = 0;
+	// Exit the thread
 	pthread_exit(NULL);
 }
 
@@ -136,19 +203,19 @@ void broadcast_game_state(const room_t* room, const game_state* game)
 	sprintf(roll_result, "%d", game->roll_result);
 
 	send_structured_message(curr->socket, S_GAME_STATE, 4,
-		K_MY_SCORE, curr_score,
-		K_OPP_SCORE, next_score,
-		K_TURN_SCORE, turn_score,
-		K_ROLL, roll_result,
-		K_CURRENT_PLAYER, curr->nickname
+	                        K_MY_SCORE, curr_score,
+	                        K_OPP_SCORE, next_score,
+	                        K_TURN_SCORE, turn_score,
+	                        K_ROLL, roll_result,
+	                        K_CURRENT_PLAYER, curr->nickname
 	);
 
 	send_structured_message(next->socket, S_GAME_STATE, 4,
-		K_MY_SCORE, next_score,
-		K_OPP_SCORE, curr_score,
-		K_TURN_SCORE, turn_score,
-		K_ROLL, roll_result,
-		K_CURRENT_PLAYER, curr->nickname
+	                        K_MY_SCORE, next_score,
+	                        K_OPP_SCORE, curr_score,
+	                        K_TURN_SCORE, turn_score,
+	                        K_ROLL, roll_result,
+	                        K_CURRENT_PLAYER, curr->nickname
 	);
 }
 
@@ -298,10 +365,10 @@ void* client_handler_thread(void* arg)
 				}
 
 				send_structured_message(client_socket, S_ROOM_INFO, 4,
-					K_ROOM_ID, id_str,
-					K_PLAYER_COUNT, p_count_str,
-				    K_MAX_PLAYERS, max_p_str,
-				    K_STATE, state_str
+				                        K_ROOM_ID, id_str,
+				                        K_PLAYER_COUNT, p_count_str,
+				                        K_MAX_PLAYERS, max_p_str,
+				                        K_STATE, state_str
 				);
 			}
 		}
@@ -316,12 +383,13 @@ void* client_handler_thread(void* arg)
 				if (join_room(room_id, player) == 0)
 				{
 					send_structured_message(client_socket, S_JOIN_OK, 0);
-											room_t* room = get_room(room_id);
-											if (room->player_count == MAX_PLAYERS_PER_ROOM)
-											{
-												pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
-												pthread_join(room->game_thread, NULL);
-											}				}
+					room_t* room = get_room(room_id);
+					if (room->player_count == MAX_PLAYERS_PER_ROOM)
+					{
+						pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
+						pthread_join(room->game_thread, NULL);
+					}
+				}
 				else
 				{
 					send_error(client_socket, E_CANNOT_JOIN);
@@ -406,6 +474,5 @@ int run_server(const int port)
 			close(*client_socket);
 			free(client_socket);
 		}
-
 	}
 }
