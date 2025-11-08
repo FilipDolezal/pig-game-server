@@ -4,6 +4,7 @@
 #include "lobby.h"
 #include "config.h"
 #include "parser.h"
+#include "logger.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,8 @@ void* game_thread_func(void* arg)
 	room_t* room = (room_t*)arg;
 	game_state game;
 
+	LOG(LOG_INFO, "Game thread started for room %d", room->id);
+
 	// Seed the random number generator for this game thread
 	game.rand_seed = time(NULL) ^ (intptr_t)room;
 
@@ -33,6 +36,7 @@ void* game_thread_func(void* arg)
 		pthread_mutex_lock(&room->mutex);
 		while (room->state == PAUSED)
 		{
+			LOG(LOG_INFO, "Game in room %d is paused, waiting for reconnect.", room->id);
 			// Set a timeout for a player to reconnect
 			struct timespec ts;
 			clock_gettime(CLOCK_REALTIME, &ts);
@@ -43,6 +47,7 @@ void* game_thread_func(void* arg)
 			// If the wait timed out, the game is over
 			if (result == ETIMEDOUT)
 			{
+				LOG(LOG_INFO, "Player in room %d timed out. Game over.", room->id);
 				game.game_over = 1;
 				// Determine the winner (the player who is still connected)
 				const int winner_idx = room->players[0]->socket == -1 ? 1 : 0;
@@ -72,6 +77,7 @@ void* game_thread_func(void* arg)
 		// If the room state was changed to ABORTED (e.g., by a player leaving), end the game
 		if (room->state == ABORTED)
 		{
+			LOG(LOG_INFO, "Game in room %d was aborted.", room->id);
 			game.game_over = 1;
 		}
 
@@ -115,7 +121,7 @@ void* game_thread_func(void* arg)
 		// Handle select() errors
 		if ((activity < 0) && (errno != EINTR))
 		{
-			printf("select error");
+			LOG(LOG_ERROR, "Select error: %s", strerror(errno));
 		}
 
 		// If there was activity on a socket
@@ -133,9 +139,11 @@ void* game_thread_func(void* arg)
 
 					if (receive_command(sending_player, command_buffer) > 0)
 					{
+						LOG(LOG_DEBUG, "Received from player %s: %s", sending_player->nickname, command_buffer);
 						parsed_command_t cmd;
 						if (parse_command(command_buffer, &cmd) != 0)
 						{
+							LOG(LOG_WARN, "Malformed command from player %s. Ignoring.", sending_player->nickname);
 							// Malformed command from a client. In-game, we'll ignore it
 							// rather than disconnecting the player, which would end the game
 							// for the opponent.
@@ -145,6 +153,7 @@ void* game_thread_func(void* arg)
 						// Handle QUIT from any player at any time
 						if (cmd.type == CMD_QUIT)
 						{
+							LOG(LOG_INFO, "Player %s quit game in room %d.", sending_player->nickname, room->id);
 							game.game_over = 1;
 							send_structured_message(sending_player->socket, S_GAME_LOSE, 0);
 							if (other_player->socket != -1)
@@ -169,13 +178,20 @@ void* game_thread_func(void* arg)
 									broadcast_game_state(room, &game);
 									break;
 								default:
-									// Ignore unknown or out-of-turn commands.
+									LOG(
+										LOG_WARN, "Player %s sent out-of-turn/unknown command.",
+										sending_player->nickname
+									);
+								// Ignore unknown or out-of-turn commands.
 									break;
 							}
 						}
 					}
 					else
 					{
+						LOG(
+							LOG_INFO, "Player %s disconnected from game in room %d.", sending_player->nickname, room->id
+						);
 						// treating this as disconnect
 						if (other_player->socket != -1)
 						{
@@ -201,6 +217,7 @@ void* game_thread_func(void* arg)
 		}
 	}
 
+	LOG(LOG_INFO, "Game in room %d finished. Returning players to lobby.", room->id);
 	// After the game loop ends, send players back to the lobby
 	for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
 	{
@@ -226,6 +243,11 @@ void broadcast_game_start(const room_t* room, const int first_to_act)
 {
 	const player_t* curr = room->players[first_to_act];
 	const player_t* next = room->players[1 - first_to_act];
+
+	LOG(
+		LOG_INFO, "Starting game in room %d between %s and %s. %s goes first.",
+		room->id, curr->nickname, next->nickname, curr->nickname
+	);
 
 	send_structured_message(
 		curr->socket, S_GAME_START, 2,
@@ -277,6 +299,7 @@ static void handle_main_loop(player_t* player);
 void* client_handler_thread(void* arg)
 {
 	player_t* player = (player_t*)arg;
+	LOG(LOG_INFO, "New client handler thread started for socket %d.", player->socket);
 
 	player = handle_login_and_reconnect(player);
 
@@ -285,6 +308,7 @@ void* client_handler_thread(void* arg)
 		handle_main_loop(player);
 	}
 
+	LOG(LOG_INFO, "Client handler thread for socket %d is exiting.", player->socket);
 	// Thread exit is handled within the helpers on error, or here on normal completion.
 	pthread_exit(NULL);
 }
@@ -300,6 +324,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	// --- LOGIN ---
 	if (receive_command(player, buffer) <= 0)
 	{
+		LOG(LOG_INFO, "Client on socket %d disconnected before login.", client_socket);
 		remove_player(player);
 		close(client_socket);
 		return NULL;
@@ -308,6 +333,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	parsed_command_t cmd;
 	if (parse_command(buffer, &cmd) != 0 || cmd.type != CMD_LOGIN)
 	{
+		LOG(LOG_WARN, "Invalid login command from socket %d.", client_socket);
 		send_error(client_socket, E_INVALID_COMMAND);
 		remove_player(player);
 		close(client_socket);
@@ -322,6 +348,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 
 	if (nickname[0] == '\0')
 	{
+		LOG(LOG_WARN, "Empty nickname from socket %d.", client_socket);
 		send_error(client_socket, E_INVALID_NICKNAME);
 		remove_player(player);
 		close(client_socket);
@@ -332,6 +359,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	player_t* reconnecting_player = find_disconnected_player(nickname);
 	if (reconnecting_player)
 	{
+		LOG(LOG_INFO, "Player %s is reconnecting.", nickname);
 		// This is a reconnecting player. We need to transfer control to the old player slot.
 		reconnecting_player->socket = client_socket; // Give the new socket to the old player object.
 
@@ -355,6 +383,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 			parsed_command_t resume_cmd;
 			if (parse_command(buffer, &resume_cmd) == 0 && resume_cmd.type == CMD_RESUME)
 			{
+				LOG(LOG_INFO, "Player %s resumed game in room %d.", player->nickname, room->id);
 				pthread_mutex_lock(&room->mutex);
 				room->state = IN_PROGRESS;
 				pthread_cond_signal(&room->cond);
@@ -369,6 +398,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 			}
 			else
 			{
+				LOG(LOG_WARN, "Player %s failed to send RESUME. Aborting game.", player->nickname);
 				// Failed to send RESUME, abort game.
 				pthread_mutex_lock(&room->mutex);
 				room->state = ABORTED;
@@ -381,8 +411,8 @@ static player_t* handle_login_and_reconnect(player_t* player)
 		}
 		else
 		{
+			LOG(LOG_INFO, "Player %s disconnected before resuming.", player->nickname);
 			// Disconnected before sending RESUME.
-			room_t* room = get_room(player->room_id);
 			pthread_mutex_lock(&room->mutex);
 			room->state = ABORTED;
 			pthread_cond_signal(&room->cond);
@@ -394,6 +424,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	}
 	else // This is a new player.
 	{
+		LOG(LOG_INFO, "New player %s logged in.", nickname);
 		// Just update the nickname in the player object we were given.
 		strcpy(player->nickname, nickname);
 		send_structured_message(client_socket, S_OK, 0);
@@ -412,14 +443,17 @@ static void handle_main_loop(player_t* player)
 		{
 			if (receive_command(player, buffer) <= 0)
 			{
+				LOG(LOG_INFO, "Player %s disconnected from lobby.", player->nickname);
 				remove_player(player);
 				close(client_socket);
 				return;
 			}
 
+			LOG(LOG_DEBUG, "Received from player %s in lobby: %s", player->nickname, buffer);
 			parsed_command_t lobby_cmd;
 			if (parse_command(buffer, &lobby_cmd) != 0)
 			{
+				LOG(LOG_WARN, "Malformed command from %s in lobby. Disconnecting.", player->nickname);
 				send_error(client_socket, E_INVALID_COMMAND);
 				remove_player(player);
 				close(client_socket);
@@ -469,38 +503,46 @@ static void handle_main_loop(player_t* player)
 						const char* room_id_str = get_command_arg(&lobby_cmd, K_ROOM);
 						if (!room_id_str)
 						{
+							LOG(
+								LOG_WARN, "JOIN_ROOM command from %s missing room ID. Disconnecting.", player->nickname
+							);
 							send_error(client_socket, E_INVALID_COMMAND);
 							remove_player(player);
 							close(client_socket);
 							return;
 						}
 						const int room_id = atoi(room_id_str);
+						LOG(LOG_INFO, "Player %s trying to join room %d.", player->nickname, room_id);
 						if (join_room(room_id, player) == 0)
 						{
 							send_structured_message(client_socket, S_JOIN_OK, 0);
 							room_t* room = get_room(room_id);
-													if (room->player_count == MAX_PLAYERS_PER_ROOM)
-													{
-														pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
-														// Wake up the other waiting player in the room.
-														pthread_mutex_lock(&room->mutex);
-														pthread_cond_broadcast(&room->cond);
-														pthread_mutex_unlock(&room->mutex);
-													}						}
+							if (room->player_count == MAX_PLAYERS_PER_ROOM)
+							{
+								pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
+								// Wake up the other waiting player in the room.
+								pthread_mutex_lock(&room->mutex);
+								pthread_cond_broadcast(&room->cond);
+								pthread_mutex_unlock(&room->mutex);
+							}
+						}
 						else
 						{
+							LOG(LOG_WARN, "Player %s failed to join room %d.", player->nickname, room_id);
 							send_error(client_socket, E_CANNOT_JOIN);
 						}
 						break;
 					}
 				case CMD_LEAVE_ROOM:
 					{
+						LOG(LOG_INFO, "Player %s leaving room.", player->nickname);
 						leave_room(player);
 						send_structured_message(client_socket, S_OK, 0);
 						break;
 					}
 				default:
 					{
+						LOG(LOG_WARN, "Invalid command from %s in lobby. Disconnecting.", player->nickname);
 						send_error(client_socket, E_INVALID_COMMAND);
 						remove_player(player);
 						close(client_socket);
@@ -517,10 +559,12 @@ static void handle_main_loop(player_t* player)
 				// Wait until the game is no longer in the WAITING state.
 				while (room->state == WAITING)
 				{
+					LOG(LOG_DEBUG, "Player %s is waiting for game to start in room %d.", player->nickname, room->id);
 					pthread_cond_wait(&room->cond, &room->mutex);
 				}
 				pthread_mutex_unlock(&room->mutex);
 
+				LOG(LOG_DEBUG, "Player %s is joining game thread for room %d.", player->nickname, room->id);
 				// Now that we're woken up, the game has started, been paused, or aborted.
 				// It's safe to join the game thread.
 				if (room->state == IN_PROGRESS || room->state == PAUSED || room->state == ABORTED)
@@ -543,7 +587,7 @@ int run_server(const int port, const char* address)
 	const int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd < 0)
 	{
-		perror("socket()");
+		LOG(LOG_ERROR, "socket() failed: %s", strerror(errno));
 		return -1;
 	}
 
@@ -551,7 +595,7 @@ int run_server(const int port, const char* address)
 	const int opt = 1;
 	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
 	{
-		perror("setsockopt()");
+		LOG(LOG_ERROR, "setsockopt() failed: %s", strerror(errno));
 		close(server_fd);
 		return -1;
 	}
@@ -565,7 +609,7 @@ int run_server(const int port, const char* address)
 	// Bind the socket to the specified IP address and port
 	if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
 	{
-		perror("bind()");
+		LOG(LOG_ERROR, "bind() failed: %s", strerror(errno));
 		close(server_fd);
 		return -1;
 	}
@@ -573,12 +617,12 @@ int run_server(const int port, const char* address)
 	// Listen for incoming connections, with a maximum backlog of MAX_PLAYERS
 	if (listen(server_fd, MAX_PLAYERS) < 0)
 	{
-		perror("listen()");
+		LOG(LOG_ERROR, "listen() failed: %s", strerror(errno));
 		close(server_fd);
 		return -1;
 	}
 
-	printf("Server listening on port %d...\n", port);
+	LOG(LOG_INFO, "Server listening on port %d...", port);
 
 	while (1)
 	{
@@ -586,13 +630,16 @@ int run_server(const int port, const char* address)
 		const int client_socket = accept(server_fd, NULL, NULL);
 		if (client_socket < 0)
 		{
-			perror("accept()");
+			LOG(LOG_ERROR, "accept() failed: %s", strerror(errno));
 			continue;
 		}
+
+		LOG(LOG_INFO, "Accepted new connection on socket %d.", client_socket);
 
 		player_t* player = add_player(client_socket);
 		if (!player)
 		{
+			LOG(LOG_WARN, "Server is full. Rejecting connection from socket %d.", client_socket);
 			send_error(client_socket, E_SERVER_FULL);
 			close(client_socket);
 			continue;
@@ -602,7 +649,7 @@ int run_server(const int port, const char* address)
 		pthread_t tid;
 		if (pthread_create(&tid, NULL, client_handler_thread, (void*)player) != 0)
 		{
-			perror("pthread_create");
+			LOG(LOG_ERROR, "pthread_create() failed: %s", strerror(errno));
 			remove_player(player); // Rollback the add_player
 			close(client_socket);
 		}
