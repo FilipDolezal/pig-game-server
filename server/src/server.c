@@ -114,13 +114,10 @@ void* game_thread_func(void* arg)
 						if (strcmp(command, C_QUIT) == 0)
 						{
 							game.game_over = 1;
-							// todo: turn other player to winner
-							send_structured_message(sending_player->socket, S_OK, 0);
-
+							send_structured_message(sending_player->socket, S_GAME_LOSE, 0);
 							if (other_player->socket != -1)
 							{
-								// Notify the other player that the opponent has quit
-								send_error(other_player->socket, E_OPPONENT_QUIT);
+								send_structured_message(other_player->socket, S_GAME_WIN, 0);
 							}
 						}
 
@@ -168,17 +165,23 @@ void* game_thread_func(void* arg)
 		}
 	}
 
-	// After the game loop ends, close the sockets of any remaining players
+	// After the game loop ends, send players back to the lobby
 	for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
 	{
-		if (room->players[i] && room->players[i]->socket != -1)
+		if (room->players[i])
 		{
-			close(room->players[i]->socket);
+			if (room->players[i]->socket != -1)
+			{
+				room->players[i]->state = LOBBY;
+				room->players[i]->room_id = -1;
+			}
 		}
 	}
 	// Reset the room to a WAITING state for new players
 	room->state = WAITING;
 	room->player_count = 0;
+	room->players[0] = NULL;
+	room->players[1] = NULL;
 	// Exit the thread
 	pthread_exit(NULL);
 }
@@ -325,81 +328,96 @@ void* client_handler_thread(void* arg)
 	strcpy(player->nickname, nickname);
 	send_structured_message(client_socket, S_OK, 0);
 
-	while (player->state == LOBBY)
+	while (player->socket != -1)
 	{
-		if (receive_command(client_socket, buffer) <= 0)
+		if (player->state == LOBBY)
 		{
-			remove_player(player);
-			close(client_socket);
-			pthread_exit(NULL);
-		}
-		command = strtok(buffer, "|");
-		if (!command) continue;
-
-		if (strcmp(command, C_LIST_ROOMS) == 0)
-		{
-			char num_rooms_str[4];
-			sprintf(num_rooms_str, "%d", MAX_ROOMS);
-			send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
-
-			for (int i = 0; i < MAX_ROOMS; ++i)
+			if (receive_command(client_socket, buffer) <= 0)
 			{
-				const room_t* r = get_room(i);
-				char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
-				sprintf(id_str, "%d", r->id);
-				sprintf(p_count_str, "%d", r->player_count);
-				sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
-
-				switch (r->state)
-				{
-					case WAITING: strcpy(state_str, "WAITING");
-						break;
-					case FULL: strcpy(state_str, "FULL");
-						break;
-					case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
-						break;
-					case PAUSED: strcpy(state_str, "PAUSED");
-						break;
-					case ABORTED: strcpy(state_str, "ABORTED");
-						break;
-				}
-
-				send_structured_message(client_socket, S_ROOM_INFO, 4,
-				                        K_ROOM_ID, id_str,
-				                        K_PLAYER_COUNT, p_count_str,
-				                        K_MAX_PLAYERS, max_p_str,
-				                        K_STATE, state_str
-				);
+				remove_player(player);
+				close(client_socket);
+				pthread_exit(NULL);
 			}
-		}
-		else if (strcmp(command, C_JOIN_ROOM) == 0)
-		{
-			char* p = strtok(NULL, "");
-			const char* k = strtok(p, ":");
-			const char* v = strtok(NULL, ":");
-			if (k && v && strcmp(k, K_ROOM_ID) == 0)
+			command = strtok(buffer, "|");
+			if (!command) continue;
+
+			if (strcmp(command, C_LIST_ROOMS) == 0)
 			{
-				const int room_id = atoi(v);
-				if (join_room(room_id, player) == 0)
+				char num_rooms_str[4];
+				sprintf(num_rooms_str, "%d", MAX_ROOMS);
+				send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
+
+				for (int i = 0; i < MAX_ROOMS; ++i)
 				{
-					send_structured_message(client_socket, S_JOIN_OK, 0);
-					room_t* room = get_room(room_id);
-					if (room->player_count == MAX_PLAYERS_PER_ROOM)
+					const room_t* r = get_room(i);
+					char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
+					sprintf(id_str, "%d", r->id);
+					sprintf(p_count_str, "%d", r->player_count);
+					sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
+
+					switch (r->state)
 					{
-						pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
-						pthread_join(room->game_thread, NULL);
+						case WAITING: strcpy(state_str, "WAITING");
+							break;
+						case FULL: strcpy(state_str, "FULL");
+							break;
+						case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
+							break;
+						case PAUSED: strcpy(state_str, "PAUSED");
+							break;
+						case ABORTED: strcpy(state_str, "ABORTED");
+							break;
+					}
+
+					send_structured_message(client_socket, S_ROOM_INFO, 4,
+					                        K_ROOM_ID, id_str,
+					                        K_PLAYER_COUNT, p_count_str,
+					                        K_MAX_PLAYERS, max_p_str,
+					                        K_STATE, state_str
+					);
+				}
+			}
+			else if (strcmp(command, C_JOIN_ROOM) == 0)
+			{
+				char* p = strtok(NULL, "");
+				const char* k = strtok(p, ":");
+				const char* v = strtok(NULL, ":");
+				if (k && v && strcmp(k, K_ROOM_ID) == 0)
+				{
+					const int room_id = atoi(v);
+					if (join_room(room_id, player) == 0)
+					{
+						send_structured_message(client_socket, S_JOIN_OK, 0);
+						room_t* room = get_room(room_id);
+						if (room->player_count == MAX_PLAYERS_PER_ROOM)
+						{
+							pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
+						}
+					}
+					else
+					{
+						send_error(client_socket, E_CANNOT_JOIN);
 					}
 				}
-				else
-				{
-					send_error(client_socket, E_CANNOT_JOIN);
-				}
+			}
+			else if (strcmp(command, C_LEAVE_ROOM) == 0)
+			{
+				leave_room(player);
+				send_structured_message(client_socket, S_OK, 0);
 			}
 		}
-		else if (strcmp(command, C_LEAVE_ROOM) == 0)
+		else if (player->state == IN_GAME)
 		{
-			leave_room(player);
-			send_structured_message(client_socket, S_OK, 0);
+			room_t* room = get_room(player->room_id);
+			if (room && (room->state == IN_PROGRESS || room->state == PAUSED || room->state == ABORTED))
+			{
+				pthread_join(room->game_thread, NULL);
+			}
+			else
+			{
+				// Waiting for another player to join and start the game
+				sleep(1);
+			}
 		}
 	}
 	pthread_exit(NULL);
