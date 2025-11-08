@@ -53,6 +53,16 @@ void* game_thread_func(void* arg)
 		// Unlock the room's mutex
 		pthread_mutex_unlock(&room->mutex);
 
+		// After a potential pause, player sockets might have changed (reconnect).
+		// Update the game's file descriptors from the room's player data.
+		for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
+		{
+			if (room->players[i])
+			{
+				game.player_fds[i] = room->players[i]->socket;
+			}
+		}
+
 		// If the room state was changed to ABORTED (e.g., by a player leaving), end the game
 		if (room->state == ABORTED)
 		{
@@ -65,15 +75,28 @@ void* game_thread_func(void* arg)
 			break; // Exit the main game loop
 		}
 
-		// set of file descriptors to listen to them at the same time
 		fd_set read_fds;
+		int max_fd = -1;
 
-		// zero out the set
 		FD_ZERO(&read_fds);
 
-		// set up set with player sockets
-		FD_SET(game.player_fds[0], &read_fds);
-		FD_SET(game.player_fds[1], &read_fds);
+		for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
+		{
+			if (game.player_fds[i] != -1)
+			{
+				FD_SET(game.player_fds[i], &read_fds);
+				if (game.player_fds[i] > max_fd)
+				{
+					max_fd = game.player_fds[i];
+				}
+			}
+		}
+
+		if (max_fd == -1)
+		{
+			// Both players disconnected, game will be paused and eventually timeout.
+			continue;
+		}
 
 		// Set a short timeout for select() to make the loop non-blocking
 		struct timeval tv;
@@ -81,11 +104,7 @@ void* game_thread_func(void* arg)
 		tv.tv_usec = 0;
 
 		// Wait for activity on any of the player sockets
-		const int activity = select(
-			// Find the highest file descriptor for select()
-			(game.player_fds[0] > game.player_fds[1] ? game.player_fds[0] : game.player_fds[1]) + 1,
-			&read_fds, NULL, NULL, &tv
-		);
+		const int activity = select(max_fd + 1, &read_fds, NULL, NULL, &tv);
 
 		// Handle select() errors
 		if ((activity < 0) && (errno != EINTR))
@@ -119,17 +138,17 @@ void* game_thread_func(void* arg)
 							{
 								send_structured_message(other_player->socket, S_GAME_WIN, 0);
 							}
+
+							goto game_end;
 						}
 
 						// Check if it's the current player's turn
-						if(i == game.current_player)
+						if (i == game.current_player)
 						{
-							// Handle the 'ROLL' command
 							if (strcmp(command, C_ROLL) == 0)
 							{
 								handle_roll(&game);
 							}
-							// Handle the 'HOLD' command
 							else if (strcmp(command, C_HOLD) == 0)
 							{
 								handle_hold(&game);
@@ -155,6 +174,7 @@ void* game_thread_func(void* arg)
 						room->state = PAUSED;
 						// Mark the player's socket as invalid (-1)
 						sending_player->socket = -1;
+						game.player_fds[i] = -1;
 						// Record the time of disconnection
 						sending_player->disconnected_timestamp = time(NULL);
 
@@ -164,6 +184,8 @@ void* game_thread_func(void* arg)
 			}
 		}
 	}
+
+game_end:
 
 	// After the game loop ends, send players back to the lobby
 	for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
@@ -190,8 +212,16 @@ void broadcast_game_start(const room_t* room, const int first_to_act)
 {
 	const player_t* curr = room->players[first_to_act];
 	const player_t* next = room->players[1 - first_to_act];
-	send_structured_message(curr->socket, S_GAME_START, 2, K_OPPONENT_NICK, next->nickname, K_YOUR_TURN, "1");
-	send_structured_message(next->socket, S_GAME_START, 2, K_OPPONENT_NICK, curr->nickname, K_YOUR_TURN, "0");
+
+	send_structured_message(curr->socket, S_GAME_START, 2,
+	                        K_OPPONENT_NICK, next->nickname,
+	                        K_YOUR_TURN, "1"
+	);
+
+	send_structured_message(next->socket, S_GAME_START, 2,
+	                        K_OPPONENT_NICK, curr->nickname,
+	                        K_YOUR_TURN, "0"
+	);
 }
 
 void broadcast_game_state(const room_t* room, const game_state* game)
