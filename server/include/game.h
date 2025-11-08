@@ -5,12 +5,12 @@
 
 typedef struct
 {
-    int player_fds[2];
-    int scores[2];
-    int current_player;
-    int turn_score;
-    int roll_result;
-    int game_over;
+	int player_fds[2];
+	int scores[2];
+	int current_player;
+	int turn_score;
+	int roll_result;
+	int game_over;
 } game_state;
 
 void init_game(game_state* game, int p1_fd, int p2_fd);

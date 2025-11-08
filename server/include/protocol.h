@@ -57,7 +57,6 @@ typedef enum
 } server_error_t;
 
 
-
 // Message Keys
 
 #define K_COMMAND "command"
