@@ -83,10 +83,30 @@ typedef enum
 #define K_ROLL "roll"
 
 
+/**
+ * @brief Sends an error message to a client.
+ * @param socket The socket file descriptor of the client.
+ * @param error The error to send.
+ * @return The number of bytes sent, or -1 on error.
+ */
 int send_error(int socket, server_error_t error);
 
+/**
+ * @brief Sends a structured message to a client.
+ * @param socket The socket file descriptor of the client.
+ * @param command The command to send.
+ * @param num_args The number of key-value arguments to follow.
+ * @param ... A variable number of key-value pairs (const char* key, const char* value).
+ * @return The number of bytes sent, or -1 on error.
+ */
 int send_structured_message(int socket, server_command_t command, int num_args, ...);
 
+/**
+ * @brief Receives a command from a client, handling partial reads.
+ * @param player A pointer to the player_t object.
+ * @param out_command_buffer The buffer to store the received command.
+ * @return The number of bytes in the command, 0 on disconnect, -1 on error, -2 on buffer full.
+ */
 ssize_t receive_command(player_t* player, char* out_command_buffer);
 
 #endif // PROTOCOL_H
