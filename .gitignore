@@ -1,0 +1,11 @@
+# IDE files
+.idea/
+*.iml
+
+# Build output
+/server/cmake-build-debug/
+/client/ups-sp-client/build/
+
+# Log files
+*.log
+*.err
