@@ -9,6 +9,9 @@ static room_t rooms[MAX_ROOMS];
 static int player_count = 0;
 static pthread_mutex_t lobby_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Forward declaration for static helper function
+static void remove_player_from_room(room_t* room, player_t* player);
+
 void init_lobby()
 {
 	pthread_mutex_lock(&lobby_mutex);
@@ -65,10 +68,17 @@ player_t* add_player(const int socket)
 void remove_player(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
-	if (player->socket != -1)
+	if (player && player->socket != -1)
 	{
+		// If player was in a room, remove them from there first.
+		if (player->room_id != -1)
+		{
+			room_t* room = &rooms[player->room_id];
+			remove_player_from_room(room, player);
+		}
+
 		player->socket = -1;
-		player->state = LOBBY;
+		player->state = LOBBY; // Reset state
 		player->room_id = -1;
 		player_count--;
 	}
@@ -127,27 +137,42 @@ player_t* find_disconnected_player(const char* nickname)
 	return NULL;
 }
 
+static void remove_player_from_room(room_t* room, player_t* player)
+{
+	if (!room || !player) return;
+
+	int player_idx = -1;
+	for (int i = 0; i < room->player_count; ++i)
+	{
+		if (room->players[i] == player)
+		{
+			player_idx = i;
+			break;
+		}
+	}
+
+	if (player_idx != -1)
+	{
+		// Shift remaining players to fill the gap
+		for (int i = player_idx; i < room->player_count - 1; ++i)
+		{
+			room->players[i] = room->players[i + 1];
+		}
+		room->players[room->player_count - 1] = NULL; // Clear the last pointer
+		room->player_count--;
+	}
+}
+
 void leave_room(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
 	if (player->state == IN_GAME && player->room_id != -1)
 	{
 		room_t* room = &rooms[player->room_id];
-		if (room->state != IN_PROGRESS && room->state != PAUSED)
+		// A player can only leave a room if it's waiting for players
+		if (room->state == WAITING || room->state == FULL)
 		{
-			for (int i = 0; i < room->player_count; ++i)
-			{
-				if (room->players[i] == player)
-				{
-					// Shift remaining players
-					for (int j = i; j < room->player_count - 1; ++j)
-					{
-						room->players[j] = room->players[j + 1];
-					}
-					room->player_count--;
-					break;
-				}
-			}
+			remove_player_from_room(room, player);
 			player->state = LOBBY;
 			player->room_id = -1;
 			if (room->player_count == 0)

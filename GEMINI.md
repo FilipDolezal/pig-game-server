@@ -82,8 +82,6 @@ This section lists findings from the code review and suggestions for improvement
 ### `lobby.c`
 - [ ] **Global Mutex Bottleneck:** A single `lobby_mutex` protects all global player and room operations, which could become a bottleneck.
     - **Suggestion (Low Priority):** For future scaling, consider more granular locking. The current implementation is fine for the project's scale.
-- [ ] **Dead Code:** The function `send_player_to_lobby` is defined but never used.
-    - **Suggestion:** Remove the unused function.
 
 ### `protocol.c`
 - [ ] ~~**Potential Buffer Overflow:** `send_structured_message` does not check if the total composed message length exceeds `MSG_MAX_LEN`, which could lead to truncated messages.~~
@@ -98,3 +96,33 @@ This section lists findings from the code review and suggestions for improvement
     - **Suggestion (Stylistic):** Break out the logic for Login, Reconnect, and Lobby states into smaller static helper functions to improve readability.
 - [x] **Detached Threads:** Threads created for clients are not explicitly detached, which can lead to resource leaks on some systems.
     - **Suggestion:** Call `pthread_detach(tid);` immediately after `pthread_create` in `run_server`.
+
+## Code Review Findings (Round 2 - as of 2025-11-08)
+
+This section lists new findings from a second code review.
+
+### `config.h`
+- [ ] **Redundant Macros:** Defines both `MAX_CLIENTS` and `MAX_PLAYERS` with the same value, but `MAX_CLIENTS` is unused.
+    - **Suggestion:** Remove the `MAX_CLIENTS` macro to avoid confusion.
+
+### `lobby.h`
+- [ ] **Inconsistent Type:** `buffer_len` is an `int` while size comparisons use `size_t` (unsigned), causing compiler warnings.
+    - **Suggestion:** Change `buffer_len` to `size_t`.
+
+### `lobby.c`
+- [x] **Dangling Pointer Risk:** `remove_player` does not remove a player from the `room->players` array, which can lead to a dangling pointer if the player was in a waiting room.
+    - **Suggestion:** Make `remove_player` check `player->room_id` and clean up the player's reference from the corresponding room.
+- [x] **Dead Code:** The function `get_room_list` is declared in `lobby.h` but not defined or used.
+    - **Suggestion:** Remove the declaration from `lobby.h`.
+
+### `parser.c`
+- [ ] **Thread-Safety of `strtok`:** The parser uses `strtok`, which is not re-entrant and can be problematic in multithreaded applications.
+    - **Suggestion (High Priority):** Replace `strtok` with the thread-safe `strtok_r`.
+
+### `server.c`
+- [ ] **Inefficient Polling:** The `handle_main_loop` uses `sleep(1)` to make the first player wait for a game to start, which is inefficient.
+    - **Suggestion:** Use a condition variable (`room->cond`) to make the first player's thread wait efficiently and be woken up instantly when the game starts.
+
+### `main.c`
+- [ ] **Incorrect `rand()` Seeding:** The `rand()` function is still seeded inside `init_game`, which is called for every game.
+    - **Suggestion:** Move `srand(time(NULL));` to be called only once at server startup in `main()`.
