@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "config.h"
+#include "logger.h"
 
 // Global arrays for players and rooms
 player_t* players;
@@ -51,7 +52,9 @@ player_t* add_player(const int socket)
 	}
 	for (int i = 0; i < MAX_PLAYERS; ++i)
 	{
-		if (players[i].socket == -1)
+		// A slot is only free if the socket is -1 AND the player is not in a game.
+		// A player with state IN_GAME and socket -1 is a disconnected player waiting for reconnect.
+		if (players[i].socket == -1 && players[i].state == LOBBY)
 		{
 			players[i].socket = socket;
 			players[i].state = LOBBY;
@@ -145,7 +148,11 @@ player_t* find_active_player_by_nickname(const char* nickname)
 	pthread_mutex_lock(&lobby_mutex);
 	for (int i = 0; i < MAX_PLAYERS; ++i)
 	{
-		if (players[i].socket != -1 && strcmp(players[i].nickname, nickname) == 0)
+		if (
+			players[i].socket != -1 &&
+			players[i].nickname[0] != '\0' &&
+			strcmp(players[i].nickname, nickname) == 0
+		)
 		{
 			pthread_mutex_unlock(&lobby_mutex);
 			return &players[i];
@@ -212,4 +219,3 @@ void handle_player_disconnect(player_t* player)
 	}
 	pthread_mutex_unlock(&lobby_mutex);
 }
-
