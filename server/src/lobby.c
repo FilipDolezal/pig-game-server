@@ -49,7 +49,7 @@ player_t* add_player(const int socket)
 		{
 			players[i].socket = socket;
 			players[i].state = LOBBY;
-			players[i].nickname[0] = '\0'; // Clear nickname
+			players[i].nickname[0] = '\0';
 			players[i].room_id = -1;
 			player_count++;
 			pthread_mutex_unlock(&lobby_mutex);
@@ -60,31 +60,17 @@ player_t* add_player(const int socket)
 	return NULL;
 }
 
-void send_player_to_lobby(player_t* player)
+void remove_player(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
 	if (player->socket != -1)
 	{
-		room_t room = rooms[player->room_id];
-		room.player_count--;
-		// room.players[];
-
+		player->socket = -1;
 		player->state = LOBBY;
 		player->room_id = -1;
+		player_count--;
 	}
 	pthread_mutex_unlock(&lobby_mutex);
-}
-
-void remove_player(player_t* player)
-{
-	pthread_mutex_lock(&lobby_mutex);
-			if (player->socket != -1)
-			{
-				player->socket = -1;
-				player->state = LOBBY;
-				player->room_id = -1;
-				player_count--;
-			}	pthread_mutex_unlock(&lobby_mutex);
 }
 
 int join_room(int room_id, player_t* player)
@@ -115,7 +101,7 @@ int join_room(int room_id, player_t* player)
 	return 0;
 }
 
-room_t* get_room(int room_id)
+room_t* get_room(const int room_id)
 {
 	if (room_id < 0 || room_id >= MAX_ROOMS)
 	{
@@ -170,4 +156,3 @@ void leave_room(player_t* player)
 	}
 	pthread_mutex_unlock(&lobby_mutex);
 }
-
