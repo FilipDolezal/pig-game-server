@@ -10,8 +10,7 @@ find_package(Threads REQUIRED)
 
 file(GLOB SRCS "src/*.c")
 
-add_executable(server ${SRCS}
-        src/lobby.c)
+add_executable(server ${SRCS})
 
 target_link_libraries(server Threads::Threads)
 

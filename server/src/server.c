@@ -3,6 +3,7 @@
 #include "game.h"
 #include "lobby.h"
 #include "config.h"
+#include "parser.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,10 +128,17 @@ void* game_thread_func(void* arg)
 
 					if (receive_command(game.player_fds[i], command_buffer) > 0)
 					{
-						// Parse the command
-						const char* command = strtok(command_buffer, "|");
+						parsed_command_t cmd;
+						if (parse_command(command_buffer, &cmd) != 0)
+						{
+							// Malformed command from a client. In-game, we'll ignore it
+							// rather than disconnecting the player, which would end the game
+							// for the opponent.
+							continue;
+						}
 
-						if (strcmp(command, C_QUIT) == 0)
+						// Handle QUIT from any player at any time
+						if (cmd.type == CMD_QUIT)
 						{
 							game.game_over = 1;
 							send_structured_message(sending_player->socket, S_GAME_LOSE, 0);
@@ -138,24 +146,27 @@ void* game_thread_func(void* arg)
 							{
 								send_structured_message(other_player->socket, S_GAME_WIN, 0);
 							}
-
-							goto game_end;
+							// Break the inner for-loop to proceed to game cleanup
+							break;
 						}
 
-						// Check if it's the current player's turn
+						// Other commands are only valid if it's the sender's turn
 						if (i == game.current_player)
 						{
-							if (strcmp(command, C_ROLL) == 0)
+							switch (cmd.type)
 							{
-								handle_roll(&game);
+								case CMD_ROLL:
+									handle_roll(&game);
+									broadcast_game_state(room, &game);
+									break;
+								case CMD_HOLD:
+									handle_hold(&game);
+									broadcast_game_state(room, &game);
+									break;
+								default:
+									// Ignore unknown or out-of-turn commands.
+									break;
 							}
-							else if (strcmp(command, C_HOLD) == 0)
-							{
-								handle_hold(&game);
-							}
-
-							// After handling the command, broadcast the updated game state to both players
-							broadcast_game_state(room, &game);
 						}
 					}
 					else
@@ -184,8 +195,6 @@ void* game_thread_func(void* arg)
 			}
 		}
 	}
-
-game_end:
 
 	// After the game loop ends, send players back to the lobby
 	for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
@@ -263,25 +272,25 @@ void* client_handler_thread(void* arg)
 	char buffer[MSG_MAX_LEN];
 	char nickname[NICKNAME_LEN] = {0};
 
+	// --- LOGIN ---
 	if (receive_command(client_socket, buffer) <= 0)
 	{
 		close(client_socket);
 		pthread_exit(NULL);
 	}
 
-	char* command = strtok(buffer, "|");
-	if (command && strcmp(command, C_LOGIN) == 0)
+	parsed_command_t cmd;
+	if (parse_command(buffer, &cmd) != 0 || cmd.type != CMD_LOGIN)
 	{
-		char* payload = strtok(NULL, "");
-		if (payload)
-		{
-			const char* key = strtok(payload, ":");
-			const char* value = strtok(NULL, ":");
-			if (key && value && strcmp(key, K_NICKNAME) == 0)
-			{
-				strncpy(nickname, value, NICKNAME_LEN - 1);
-			}
-		}
+		send_error(client_socket, E_INVALID_COMMAND);
+		close(client_socket);
+		pthread_exit(NULL);
+	}
+
+	const char* nick_val = get_command_arg(&cmd, K_NICKNAME);
+	if (nick_val)
+	{
+		strncpy(nickname, nick_val, NICKNAME_LEN - 1);
 	}
 
 	if (nickname[0] == '\0')
@@ -291,10 +300,9 @@ void* client_handler_thread(void* arg)
 		pthread_exit(NULL);
 	}
 
-	// lookup nickname in the disconnected player pool
+	// --- RECONNECT or NEW PLAYER ---
 	player = find_disconnected_player(nickname);
-
-	if (player)
+	if (player) // Reconnecting player
 	{
 		send_structured_message(client_socket, S_GAME_PAUSED, 0);
 
@@ -303,10 +311,10 @@ void* client_handler_thread(void* arg)
 
 		if (receive_command(client_socket, buffer) > 0)
 		{
-			command = strtok(buffer, "|");
-
-			if (command && strcmp(command, C_RESUME) == 0)
+			parsed_command_t resume_cmd;
+			if (parse_command(buffer, &resume_cmd) == 0 && resume_cmd.type == CMD_RESUME)
 			{
+				// Player is resuming, update socket and signal game thread.
 				pthread_mutex_lock(&room->mutex);
 				player->socket = client_socket;
 				room->state = IN_PROGRESS;
@@ -319,102 +327,115 @@ void* client_handler_thread(void* arg)
 				{
 					send_structured_message(room->players[other_idx]->socket, S_OPPONENT_RECONNECTED, 0);
 				}
-
-				pthread_join(room->game_thread, NULL);
+				// DO NOT JOIN OR EXIT. Fall through to the main while loop.
 			}
 			else
 			{
-				// End the paused game
+				// Player failed to send RESUME. Abort the game.
 				pthread_mutex_lock(&room->mutex);
 				room->state = ABORTED;
 				pthread_cond_signal(&room->cond);
 				pthread_mutex_unlock(&room->mutex);
 
-				pthread_join(room->game_thread, NULL);
-
-				if (room->players[other_idx]->socket != -1)
-				{
-					send_error(room->players[other_idx]->socket, E_OPPONENT_QUIT);
-					close(room->players[other_idx]->socket);
-				}
-
-				remove_player(room->players[0]);
-				remove_player(room->players[1]);
-
-				room->player_count = 0;
+				// We don't join here. The main loop will join.
+				// The game_thread will handle player state reset.
+				// We just need to close our own socket and exit this thread.
 				close(client_socket);
+				pthread_exit(NULL);
 			}
 		}
-		pthread_exit(NULL);
+		else
+		{
+			// Client disconnected before sending RESUME.
+			// Abort the game.
+			pthread_mutex_lock(&room->mutex);
+			room->state = ABORTED;
+			pthread_cond_signal(&room->cond);
+			pthread_mutex_unlock(&room->mutex);
+			close(client_socket);
+			pthread_exit(NULL);
+		}
 	}
-
-	player = add_player(client_socket);
-	if (!player)
+	else // New player
 	{
-		send_error(client_socket, E_SERVER_FULL);
-		close(client_socket);
-		pthread_exit(NULL);
+		player = add_player(client_socket);
+		if (!player)
+		{
+			send_error(client_socket, E_SERVER_FULL);
+			close(client_socket);
+			pthread_exit(NULL);
+		}
+		strcpy(player->nickname, nickname);
+		send_structured_message(client_socket, S_OK, 0);
 	}
-	strcpy(player->nickname, nickname);
-	send_structured_message(client_socket, S_OK, 0);
 
-	while (player->socket != -1)
+
+	// --- MAIN PLAYER LOOP ---
+	while (player && player->socket != -1)
 	{
 		if (player->state == LOBBY)
 		{
 			if (receive_command(client_socket, buffer) <= 0)
 			{
 				remove_player(player);
+				// socket is already closed by receive_command failure, or will be.
+				pthread_exit(NULL);
+			}
+
+			parsed_command_t lobby_cmd;
+			if (parse_command(buffer, &lobby_cmd) != 0)
+			{
+				send_error(client_socket, E_INVALID_COMMAND);
+				remove_player(player);
 				close(client_socket);
 				pthread_exit(NULL);
 			}
-			command = strtok(buffer, "|");
-			if (!command) continue;
 
-			if (strcmp(command, C_LIST_ROOMS) == 0)
+			switch (lobby_cmd.type)
 			{
-				char num_rooms_str[4];
-				sprintf(num_rooms_str, "%d", MAX_ROOMS);
-				send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
-
-				for (int i = 0; i < MAX_ROOMS; ++i)
+				case CMD_LIST_ROOMS:
 				{
-					const room_t* r = get_room(i);
-					char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
-					sprintf(id_str, "%d", r->id);
-					sprintf(p_count_str, "%d", r->player_count);
-					sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
+					char num_rooms_str[4];
+					sprintf(num_rooms_str, "%d", MAX_ROOMS);
+					send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
 
-					switch (r->state)
+					for (int i = 0; i < MAX_ROOMS; ++i)
 					{
-						case WAITING: strcpy(state_str, "WAITING");
-							break;
-						case FULL: strcpy(state_str, "FULL");
-							break;
-						case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
-							break;
-						case PAUSED: strcpy(state_str, "PAUSED");
-							break;
-						case ABORTED: strcpy(state_str, "ABORTED");
-							break;
-					}
+						const room_t* r = get_room(i);
+						char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
+						sprintf(id_str, "%d", r->id);
+						sprintf(p_count_str, "%d", r->player_count);
+						sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
 
-					send_structured_message(client_socket, S_ROOM_INFO, 4,
-					                        K_ROOM_ID, id_str,
-					                        K_PLAYER_COUNT, p_count_str,
-					                        K_MAX_PLAYERS, max_p_str,
-					                        K_STATE, state_str
-					);
+						switch (r->state)
+						{
+							case WAITING: strcpy(state_str, "WAITING"); break;
+							case FULL: strcpy(state_str, "FULL"); break;
+							case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS"); break;
+							case PAUSED: strcpy(state_str, "PAUSED"); break;
+							case ABORTED: strcpy(state_str, "ABORTED"); break;
+						}
+
+						send_structured_message(client_socket, S_ROOM_INFO, 4,
+												K_ROOM_ID, id_str,
+												K_PLAYER_COUNT, p_count_str,
+												K_MAX_PLAYERS, max_p_str,
+												K_STATE, state_str
+						);
+					}
+					break;
 				}
-			}
-			else if (strcmp(command, C_JOIN_ROOM) == 0)
-			{
-				char* p = strtok(NULL, "");
-				const char* k = strtok(p, ":");
-				const char* v = strtok(NULL, ":");
-				if (k && v && strcmp(k, K_ROOM_ID) == 0)
+				case CMD_JOIN_ROOM:
 				{
-					const int room_id = atoi(v);
+					const char* room_id_str = get_command_arg(&lobby_cmd, K_ROOM_ID);
+					if (!room_id_str)
+					{
+						send_error(client_socket, E_INVALID_COMMAND);
+						remove_player(player);
+						close(client_socket);
+						pthread_exit(NULL);
+					}
+					const int room_id = atoi(room_id_str);
 					if (join_room(room_id, player) == 0)
 					{
 						send_structured_message(client_socket, S_JOIN_OK, 0);
@@ -428,12 +449,21 @@ void* client_handler_thread(void* arg)
 					{
 						send_error(client_socket, E_CANNOT_JOIN);
 					}
+					break;
 				}
-			}
-			else if (strcmp(command, C_LEAVE_ROOM) == 0)
-			{
-				leave_room(player);
-				send_structured_message(client_socket, S_OK, 0);
+				case CMD_LEAVE_ROOM:
+				{
+					leave_room(player);
+					send_structured_message(client_socket, S_OK, 0);
+					break;
+				}
+				default:
+				{
+					send_error(client_socket, E_INVALID_COMMAND);
+					remove_player(player);
+					close(client_socket);
+					pthread_exit(NULL);
+				}
 			}
 		}
 		else if (player->state == IN_GAME)
