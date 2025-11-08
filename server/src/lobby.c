@@ -170,7 +170,7 @@ void leave_room(player_t* player)
 	{
 		room_t* room = &rooms[player->room_id];
 		// A player can only leave a room if it's waiting for players
-		if (room->state == WAITING || room->state == FULL)
+		if (room->state == WAITING)
 		{
 			remove_player_from_room(room, player);
 			player->state = LOBBY;

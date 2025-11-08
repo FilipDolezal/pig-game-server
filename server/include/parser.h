@@ -2,31 +2,34 @@
 #define PARSER_H
 
 // Enum for all possible client commands
-typedef enum {
-    CMD_UNKNOWN,
-    CMD_LOGIN,
-    CMD_RESUME,
-    CMD_LIST_ROOMS,
-    CMD_JOIN_ROOM,
-    CMD_LEAVE_ROOM,
-    CMD_ROLL,
-    CMD_HOLD,
-    CMD_QUIT
+typedef enum
+{
+	CMD_UNKNOWN,
+	CMD_LOGIN,
+	CMD_RESUME,
+	CMD_LIST_ROOMS,
+	CMD_JOIN_ROOM,
+	CMD_LEAVE_ROOM,
+	CMD_ROLL,
+	CMD_HOLD,
+	CMD_QUIT
 } client_command_t;
 
 // A structure to hold a parsed command argument (key-value pair)
 #define MAX_ARGS 5 // A command can have up to 5 arguments
-typedef struct {
-    char* key;
-    char* value;
+
+typedef struct
+{
+	char* key;
+	char* value;
 } command_arg;
 
 // A structure to hold a fully parsed command
-typedef struct {
-    client_command_t type;
-    command_arg args[MAX_ARGS];
-    int arg_count;
-    char* command_verb; // Store the original command verb for context
+typedef struct
+{
+	client_command_t type;
+	command_arg args[MAX_ARGS];
+	int arg_count;
 } parsed_command_t;
 
 /**

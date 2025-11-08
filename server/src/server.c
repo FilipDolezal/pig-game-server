@@ -443,8 +443,6 @@ static void handle_main_loop(player_t* player)
 							{
 								case WAITING: strcpy(state_str, "WAITING");
 									break;
-								case FULL: strcpy(state_str, "FULL");
-									break;
 								case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
 									break;
 								case PAUSED: strcpy(state_str, "PAUSED");

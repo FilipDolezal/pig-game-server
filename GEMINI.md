@@ -102,11 +102,11 @@ This section lists findings from the code review and suggestions for improvement
 This section lists new findings from a second code review.
 
 ### `config.h`
-- [ ] **Redundant Macros:** Defines both `MAX_CLIENTS` and `MAX_PLAYERS` with the same value, but `MAX_CLIENTS` is unused.
+- [x] **Redundant Macros:** Defines both `MAX_CLIENTS` and `MAX_PLAYERS` with the same value, but `MAX_CLIENTS` is unused.
     - **Suggestion:** Remove the `MAX_CLIENTS` macro to avoid confusion.
 
 ### `lobby.h`
-- [ ] **Inconsistent Type:** `buffer_len` is an `int` while size comparisons use `size_t` (unsigned), causing compiler warnings.
+- [x] **Inconsistent Type:** `buffer_len` is an `int` while size comparisons use `size_t` (unsigned), causing compiler warnings.
     - **Suggestion:** Change `buffer_len` to `size_t`.
 
 ### `lobby.c`

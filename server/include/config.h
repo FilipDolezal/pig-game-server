@@ -2,13 +2,11 @@
 #define CONFIG_H
 
 #define DEFAULT_PORT 12345
-#define MAX_CLIENTS 10
 #define MAX_ROOMS 5
 #define MAX_PLAYERS_PER_ROOM 2
 #define NICKNAME_LEN 32
 #define MAX_PLAYERS 10
 #define WINNING_SCORE 30
-#define BUFFER_SIZE MSG_MAX_LEN
 #define RECONNECT_TIMEOUT 20
 
 #endif // CONFIG_H

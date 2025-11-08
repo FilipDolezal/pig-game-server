@@ -15,7 +15,6 @@ typedef enum
 typedef enum
 {
 	WAITING,
-	FULL,
 	IN_PROGRESS,
 	PAUSED,
 	ABORTED
@@ -29,7 +28,7 @@ typedef struct player_s
 	int room_id;
 	time_t disconnected_timestamp;
 	char read_buffer[MSG_MAX_LEN * 2];
-	int buffer_len;
+	size_t buffer_len;
 } player_t;
 
 typedef struct room_s
