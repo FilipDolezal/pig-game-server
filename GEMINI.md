@@ -80,7 +80,7 @@ This section lists findings from the code review and suggestions for improvement
     - **Suggestion:** Seed `rand()` only once in `main()`. For better thread safety, consider using `rand_r()` or a dedicated, mutex-protected random number generator.
 
 ### `lobby.c`
-- [ ] **Global Mutex Bottleneck:** A single `lobby_mutex` protects all global player and room operations, which could become a bottleneck.
+- [~] **Global Mutex Bottleneck:** A single `lobby_mutex` protects all global player and room operations, which could become a bottleneck.
     - **Suggestion (Low Priority):** For future scaling, consider more granular locking. The current implementation is fine for the project's scale.
 
 ### `protocol.c`
@@ -120,7 +120,7 @@ This section lists new findings from a second code review.
     - **Suggestion (High Priority):** Replace `strtok` with the thread-safe `strtok_r`.
 
 ### `server.c`
-- [ ] **Inefficient Polling:** The `handle_main_loop` uses `sleep(1)` to make the first player wait for a game to start, which is inefficient.
+- [x] **Inefficient Polling:** The `handle_main_loop` uses `sleep(1)` to make the first player wait for a game to start, which is inefficient.
     - **Suggestion:** Use a condition variable (`room->cond`) to make the first player's thread wait efficiently and be woken up instantly when the game starts.
 
 ### `main.c`

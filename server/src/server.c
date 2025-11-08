@@ -476,11 +476,14 @@ static void handle_main_loop(player_t* player)
 						{
 							send_structured_message(client_socket, S_JOIN_OK, 0);
 							room_t* room = get_room(room_id);
-							if (room->player_count == MAX_PLAYERS_PER_ROOM)
-							{
-								pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
-							}
-						}
+													if (room->player_count == MAX_PLAYERS_PER_ROOM)
+													{
+														pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
+														// Wake up the other waiting player in the room.
+														pthread_mutex_lock(&room->mutex);
+														pthread_cond_broadcast(&room->cond);
+														pthread_mutex_unlock(&room->mutex);
+													}						}
 						else
 						{
 							send_error(client_socket, E_CANNOT_JOIN);
@@ -505,14 +508,22 @@ static void handle_main_loop(player_t* player)
 		else if (player->state == IN_GAME)
 		{
 			room_t* room = get_room(player->room_id);
-			if (room && (room->state == IN_PROGRESS || room->state == PAUSED || room->state == ABORTED))
+			if (room)
 			{
-				pthread_join(room->game_thread, NULL);
-			}
-			else
-			{
-				// Waiting for another player to join and start the game
-				sleep(1);
+				pthread_mutex_lock(&room->mutex);
+				// Wait until the game is no longer in the WAITING state.
+				while (room->state == WAITING)
+				{
+					pthread_cond_wait(&room->cond, &room->mutex);
+				}
+				pthread_mutex_unlock(&room->mutex);
+
+				// Now that we're woken up, the game has started, been paused, or aborted.
+				// It's safe to join the game thread.
+				if (room->state == IN_PROGRESS || room->state == PAUSED || room->state == ABORTED)
+				{
+					pthread_join(room->game_thread, NULL);
+				}
 			}
 		}
 	}
