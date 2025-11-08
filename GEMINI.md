@@ -92,9 +92,9 @@ This section lists findings from the code review and suggestions for improvement
     - **Suggestion (Low Priority):** For higher robustness, implement a loop that reads from the socket until a newline `\n` is found.
 
 ### `server.c`
-- [ ] **Minor Memory Leak:** In `run_server`, memory allocated for `client_socket` is not freed if `pthread_create` fails.
+- [x] **Minor Memory Leak:** In `run_server`, memory allocated for `client_socket` is not freed if `pthread_create` fails.
     - **Suggestion:** Add `free(client_socket);` in the `pthread_create` error handling block.
-- [ ] **Function Length:** `client_handler_thread` is very long and handles multiple distinct states.
+- [x] **Function Length:** `client_handler_thread` is very long and handles multiple distinct states.
     - **Suggestion (Stylistic):** Break out the logic for Login, Reconnect, and Lobby states into smaller static helper functions to improve readability.
-- [ ] **Detached Threads:** Threads created for clients are not explicitly detached, which can lead to resource leaks on some systems.
+- [x] **Detached Threads:** Threads created for clients are not explicitly detached, which can lead to resource leaks on some systems.
     - **Suggestion:** Call `pthread_detach(tid);` immediately after `pthread_create` in `run_server`.
