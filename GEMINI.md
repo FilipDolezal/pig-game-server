@@ -86,9 +86,9 @@ This section lists findings from the code review and suggestions for improvement
     - **Suggestion:** Remove the unused function.
 
 ### `protocol.c`
-- [ ] **Potential Buffer Overflow:** `send_structured_message` does not check if the total composed message length exceeds `MSG_MAX_LEN`, which could lead to truncated messages.
-    - **Suggestion:** Add a check after message composition to ensure the buffer was not overflowed.
-- [ ] **Incomplete `read()` Handling:** `receive_command` assumes a full command arrives in a single `read()` call, which is not guaranteed over TCP.
+- [ ] ~~**Potential Buffer Overflow:** `send_structured_message` does not check if the total composed message length exceeds `MSG_MAX_LEN`, which could lead to truncated messages.~~
+    - **User Note:** Marked as not a concern for now.
+- [x] **Incomplete `read()` Handling:** `receive_command` assumes a full command arrives in a single `read()` call, which is not guaranteed over TCP.
     - **Suggestion (Low Priority):** For higher robustness, implement a loop that reads from the socket until a newline `\n` is found.
 
 ### `server.c`

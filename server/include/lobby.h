@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <time.h>
 #include "config.h"
-#include "game.h"
+#include "protocol.h" // For MSG_MAX_LEN
 
 typedef enum
 {
@@ -21,16 +21,18 @@ typedef enum
 	ABORTED
 } room_state;
 
-typedef struct
+typedef struct player_s
 {
 	int socket;
 	char nickname[NICKNAME_LEN];
 	player_state state;
 	int room_id;
 	time_t disconnected_timestamp;
+	char read_buffer[MSG_MAX_LEN * 2];
+	int buffer_len;
 } player_t;
 
-typedef struct
+typedef struct room_s
 {
 	int id;
 	room_state state;

@@ -1,6 +1,7 @@
 #ifndef SERVER_H
 #define SERVER_H
-#include <lobby.h>
+#include "lobby.h"
+#include "game.h"
 
 /** Runs the game server, handling client connections and game sessions. */
 int run_server(int port);

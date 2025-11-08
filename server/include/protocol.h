@@ -2,9 +2,12 @@
 #define PROTOCOL_H
 
 #define MSG_MAX_LEN 256
-#include <game.h>
-#include <lobby.h>
 #include <stdio.h>
+
+// Forward declaration to break circular dependency
+struct player_s;
+typedef struct player_s player_t;
+
 
 // Commands from Client to Server
 
@@ -92,6 +95,6 @@ int send_error(int socket, server_error_t error);
 
 int send_structured_message(int socket, server_command_t command, int num_args, ...);
 
-ssize_t receive_command(const int socket, char* buffer);
+ssize_t receive_command(player_t* player, char* out_command_buffer);
 
 #endif // PROTOCOL_H

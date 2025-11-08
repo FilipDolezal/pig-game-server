@@ -51,6 +51,8 @@ player_t* add_player(const int socket)
 			players[i].state = LOBBY;
 			players[i].nickname[0] = '\0';
 			players[i].room_id = -1;
+			players[i].buffer_len = 0;
+			players[i].read_buffer[0] = '\0';
 			player_count++;
 			pthread_mutex_unlock(&lobby_mutex);
 			return &players[i];

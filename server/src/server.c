@@ -46,7 +46,9 @@ void* game_thread_func(void* arg)
 				// If the winner is still connected, notify them that their opponent timed out
 				if (room->players[winner_idx]->socket != -1)
 				{
-					send_structured_message(room->players[winner_idx]->socket, S_GAME_WIN, 1, K_MSG, "Your opponent timed out.");
+					send_structured_message(
+						room->players[winner_idx]->socket, S_GAME_WIN, 1, K_MSG, "Your opponent timed out."
+					);
 				}
 				break; // Exit the PAUSED loop
 			}
@@ -126,7 +128,7 @@ void* game_thread_func(void* arg)
 					const player_t* other_player = room->players[1 - i];
 					char command_buffer[MSG_MAX_LEN];
 
-					if (receive_command(game.player_fds[i], command_buffer) > 0)
+					if (receive_command(sending_player, command_buffer) > 0)
 					{
 						parsed_command_t cmd;
 						if (parse_command(command_buffer, &cmd) != 0)
@@ -222,14 +224,16 @@ void broadcast_game_start(const room_t* room, const int first_to_act)
 	const player_t* curr = room->players[first_to_act];
 	const player_t* next = room->players[1 - first_to_act];
 
-	send_structured_message(curr->socket, S_GAME_START, 2,
-	                        K_OPPONENT_NICK, next->nickname,
-	                        K_YOUR_TURN, "1"
+	send_structured_message(
+		curr->socket, S_GAME_START, 2,
+		K_OPPONENT_NICK, next->nickname,
+		K_YOUR_TURN, "1"
 	);
 
-	send_structured_message(next->socket, S_GAME_START, 2,
-	                        K_OPPONENT_NICK, curr->nickname,
-	                        K_YOUR_TURN, "0"
+	send_structured_message(
+		next->socket, S_GAME_START, 2,
+		K_OPPONENT_NICK, curr->nickname,
+		K_YOUR_TURN, "0"
 	);
 }
 
@@ -244,28 +248,29 @@ void broadcast_game_state(const room_t* room, const game_state* game)
 	sprintf(turn_score, "%d", game->turn_score);
 	sprintf(roll_result, "%d", game->roll_result);
 
-	send_structured_message(curr->socket, S_GAME_STATE, 4,
-	                        K_MY_SCORE, curr_score,
-	                        K_OPP_SCORE, next_score,
-	                        K_TURN_SCORE, turn_score,
-	                        K_ROLL, roll_result,
-	                        K_CURRENT_PLAYER, curr->nickname
+	send_structured_message(
+		curr->socket, S_GAME_STATE, 4,
+		K_MY_SCORE, curr_score,
+		K_OPP_SCORE, next_score,
+		K_TURN_SCORE, turn_score,
+		K_ROLL, roll_result,
+		K_CURRENT_PLAYER, curr->nickname
 	);
 
-	send_structured_message(next->socket, S_GAME_STATE, 4,
-	                        K_MY_SCORE, next_score,
-	                        K_OPP_SCORE, curr_score,
-	                        K_TURN_SCORE, turn_score,
-	                        K_ROLL, roll_result,
-	                        K_CURRENT_PLAYER, curr->nickname
+	send_structured_message(
+		next->socket, S_GAME_STATE, 4,
+		K_MY_SCORE, next_score,
+		K_OPP_SCORE, curr_score,
+		K_TURN_SCORE, turn_score,
+		K_ROLL, roll_result,
+		K_CURRENT_PLAYER, curr->nickname
 	);
 }
 
 void* client_handler_thread(void* arg)
 {
-	const int client_socket = *(int*)arg;
-	free(arg);
-	player_t* player = NULL;
+	player_t* player = (player_t*)arg;
+	const int client_socket = player->socket;
 
 	send_structured_message(client_socket, S_WELCOME, 0);
 
@@ -273,8 +278,9 @@ void* client_handler_thread(void* arg)
 	char nickname[NICKNAME_LEN] = {0};
 
 	// --- LOGIN ---
-	if (receive_command(client_socket, buffer) <= 0)
+	if (receive_command(player, buffer) <= 0)
 	{
+		remove_player(player);
 		close(client_socket);
 		pthread_exit(NULL);
 	}
@@ -283,6 +289,7 @@ void* client_handler_thread(void* arg)
 	if (parse_command(buffer, &cmd) != 0 || cmd.type != CMD_LOGIN)
 	{
 		send_error(client_socket, E_INVALID_COMMAND);
+		remove_player(player);
 		close(client_socket);
 		pthread_exit(NULL);
 	}
@@ -296,27 +303,39 @@ void* client_handler_thread(void* arg)
 	if (nickname[0] == '\0')
 	{
 		send_error(client_socket, E_INVALID_NICKNAME);
+		remove_player(player);
 		close(client_socket);
 		pthread_exit(NULL);
 	}
 
 	// --- RECONNECT or NEW PLAYER ---
-	player = find_disconnected_player(nickname);
-	if (player) // Reconnecting player
+	player_t* reconnecting_player = find_disconnected_player(nickname);
+	if (reconnecting_player)
 	{
+		// This is a reconnecting player. We need to transfer control to the old player slot.
+		reconnecting_player->socket = client_socket; // Give the new socket to the old player object.
+
+		// Copy any data read after the LOGIN command from the temp buffer to the real buffer.
+		memcpy(reconnecting_player->read_buffer, player->read_buffer, player->buffer_len);
+		reconnecting_player->buffer_len = player->buffer_len;
+
+		// The temporary player object created by `add_player` is no longer needed.
+		remove_player(player);
+
+		// This thread will now manage the reconnecting player.
+		player = reconnecting_player;
+
 		send_structured_message(client_socket, S_GAME_PAUSED, 0);
 
 		room_t* room = get_room(player->room_id);
 		const int other_idx = (room->players[0] == player) ? 1 : 0;
 
-		if (receive_command(client_socket, buffer) > 0)
+		if (receive_command(player, buffer) > 0)
 		{
 			parsed_command_t resume_cmd;
 			if (parse_command(buffer, &resume_cmd) == 0 && resume_cmd.type == CMD_RESUME)
 			{
-				// Player is resuming, update socket and signal game thread.
 				pthread_mutex_lock(&room->mutex);
-				player->socket = client_socket;
 				room->state = IN_PROGRESS;
 				pthread_cond_signal(&room->cond);
 				pthread_mutex_unlock(&room->mutex);
@@ -327,58 +346,48 @@ void* client_handler_thread(void* arg)
 				{
 					send_structured_message(room->players[other_idx]->socket, S_OPPONENT_RECONNECTED, 0);
 				}
-				// DO NOT JOIN OR EXIT. Fall through to the main while loop.
 			}
 			else
 			{
-				// Player failed to send RESUME. Abort the game.
+				// Failed to send RESUME, abort game.
 				pthread_mutex_lock(&room->mutex);
 				room->state = ABORTED;
 				pthread_cond_signal(&room->cond);
 				pthread_mutex_unlock(&room->mutex);
-
-				// We don't join here. The main loop will join.
-				// The game_thread will handle player state reset.
-				// We just need to close our own socket and exit this thread.
+				remove_player(player);
 				close(client_socket);
 				pthread_exit(NULL);
 			}
 		}
 		else
 		{
-			// Client disconnected before sending RESUME.
-			// Abort the game.
+			// Disconnected before sending RESUME.
+			room_t* room = get_room(player->room_id);
 			pthread_mutex_lock(&room->mutex);
 			room->state = ABORTED;
 			pthread_cond_signal(&room->cond);
 			pthread_mutex_unlock(&room->mutex);
+			remove_player(player);
 			close(client_socket);
 			pthread_exit(NULL);
 		}
 	}
-	else // New player
+	else // This is a new player.
 	{
-		player = add_player(client_socket);
-		if (!player)
-		{
-			send_error(client_socket, E_SERVER_FULL);
-			close(client_socket);
-			pthread_exit(NULL);
-		}
+		// Just update the nickname in the player object we were given.
 		strcpy(player->nickname, nickname);
 		send_structured_message(client_socket, S_OK, 0);
 	}
-
 
 	// --- MAIN PLAYER LOOP ---
 	while (player->socket != -1)
 	{
 		if (player->state == LOBBY)
 		{
-			if (receive_command(client_socket, buffer) <= 0)
+			if (receive_command(player, buffer) <= 0)
 			{
 				remove_player(player);
-				// socket is already closed by receive_command failure, or will be.
+				close(client_socket);
 				pthread_exit(NULL);
 			}
 
@@ -394,76 +403,82 @@ void* client_handler_thread(void* arg)
 			switch (lobby_cmd.type)
 			{
 				case CMD_LIST_ROOMS:
-				{
-					char num_rooms_str[4];
-					sprintf(num_rooms_str, "%d", MAX_ROOMS);
-					send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
-
-					for (int i = 0; i < MAX_ROOMS; ++i)
 					{
-						const room_t* r = get_room(i);
-						char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
-						sprintf(id_str, "%d", r->id);
-						sprintf(p_count_str, "%d", r->player_count);
-						sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
+						char num_rooms_str[4];
+						sprintf(num_rooms_str, "%d", MAX_ROOMS);
+						send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
 
-						switch (r->state)
+						for (int i = 0; i < MAX_ROOMS; ++i)
 						{
-							case WAITING: strcpy(state_str, "WAITING"); break;
-							case FULL: strcpy(state_str, "FULL"); break;
-							case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS"); break;
-							case PAUSED: strcpy(state_str, "PAUSED"); break;
-							case ABORTED: strcpy(state_str, "ABORTED"); break;
-						}
+							const room_t* r = get_room(i);
+							char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
+							sprintf(id_str, "%d", r->id);
+							sprintf(p_count_str, "%d", r->player_count);
+							sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
 
-						send_structured_message(client_socket, S_ROOM_INFO, 4,
-												K_ROOM_ID, id_str,
-												K_PLAYER_COUNT, p_count_str,
-												K_MAX_PLAYERS, max_p_str,
-												K_STATE, state_str
-						);
+							switch (r->state)
+							{
+								case WAITING: strcpy(state_str, "WAITING");
+									break;
+								case FULL: strcpy(state_str, "FULL");
+									break;
+								case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
+									break;
+								case PAUSED: strcpy(state_str, "PAUSED");
+									break;
+								case ABORTED: strcpy(state_str, "ABORTED");
+									break;
+							}
+
+							send_structured_message(
+								client_socket, S_ROOM_INFO, 4,
+								K_ROOM_ID, id_str,
+								K_PLAYER_COUNT, p_count_str,
+								K_MAX_PLAYERS, max_p_str,
+								K_STATE, state_str
+							);
+						}
+						break;
 					}
-					break;
-				}
 				case CMD_JOIN_ROOM:
-				{
-					const char* room_id_str = get_command_arg(&lobby_cmd, K_ROOM_ID);
-					if (!room_id_str)
+					{
+						const char* room_id_str = get_command_arg(&lobby_cmd, K_ROOM_ID);
+						if (!room_id_str)
+						{
+							send_error(client_socket, E_INVALID_COMMAND);
+							remove_player(player);
+							close(client_socket);
+							pthread_exit(NULL);
+						}
+						const int room_id = atoi(room_id_str);
+						if (join_room(room_id, player) == 0)
+						{
+							send_structured_message(client_socket, S_JOIN_OK, 0);
+							room_t* room = get_room(room_id);
+							if (room->player_count == MAX_PLAYERS_PER_ROOM)
+							{
+								pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
+							}
+						}
+						else
+						{
+							send_error(client_socket, E_CANNOT_JOIN);
+						}
+						break;
+					}
+				case CMD_LEAVE_ROOM:
+					{
+						leave_room(player);
+						send_structured_message(client_socket, S_OK, 0);
+						break;
+					}
+				default:
 					{
 						send_error(client_socket, E_INVALID_COMMAND);
 						remove_player(player);
 						close(client_socket);
 						pthread_exit(NULL);
 					}
-					const int room_id = atoi(room_id_str);
-					if (join_room(room_id, player) == 0)
-					{
-						send_structured_message(client_socket, S_JOIN_OK, 0);
-						room_t* room = get_room(room_id);
-						if (room->player_count == MAX_PLAYERS_PER_ROOM)
-						{
-							pthread_create(&room->game_thread, NULL, game_thread_func, (void*)room);
-						}
-					}
-					else
-					{
-						send_error(client_socket, E_CANNOT_JOIN);
-					}
-					break;
-				}
-				case CMD_LEAVE_ROOM:
-				{
-					leave_room(player);
-					send_structured_message(client_socket, S_OK, 0);
-					break;
-				}
-				default:
-				{
-					send_error(client_socket, E_INVALID_COMMAND);
-					remove_player(player);
-					close(client_socket);
-					pthread_exit(NULL);
-				}
 			}
 		}
 		else if (player->state == IN_GAME)
@@ -534,23 +549,33 @@ int run_server(const int port)
 	while (1)
 	{
 		// Accept a new client connection
-		int* client_socket = malloc(sizeof(int));
-		*client_socket = accept(server_fd, NULL, NULL);
-		if (*client_socket < 0)
+		const int client_socket = accept(server_fd, NULL, NULL);
+		if (client_socket < 0)
 		{
 			perror("accept()");
-			free(client_socket);
+			continue;
+		}
+
+		player_t* player = add_player(client_socket);
+		if (!player)
+		{
+			send_error(client_socket, E_SERVER_FULL);
+			close(client_socket);
 			continue;
 		}
 
 		// Create a new thread to handle the client connection
 		pthread_t tid;
-
-		if (pthread_create(&tid, NULL, client_handler_thread, (void*)client_socket) != 0)
+		if (pthread_create(&tid, NULL, client_handler_thread, (void*)player) != 0)
 		{
 			perror("pthread_create");
-			close(*client_socket);
-			free(client_socket);
+			remove_player(player); // Rollback the add_player
+			close(client_socket);
+		}
+		else
+		{
+			// Detach the thread so its resources are automatically released on exit
+			pthread_detach(tid);
 		}
 	}
 }
