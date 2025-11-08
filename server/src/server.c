@@ -46,7 +46,7 @@ void* game_thread_func(void* arg)
 				// If the winner is still connected, notify them that their opponent timed out
 				if (room->players[winner_idx]->socket != -1)
 				{
-					send_error(room->players[winner_idx]->socket, E_OPPONENT_TIMEOUT);
+					send_structured_message(room->players[winner_idx]->socket, S_GAME_WIN, 1, K_MSG, "Your opponent timed out.");
 				}
 				break; // Exit the PAUSED loop
 			}
@@ -371,7 +371,7 @@ void* client_handler_thread(void* arg)
 
 
 	// --- MAIN PLAYER LOOP ---
-	while (player && player->socket != -1)
+	while (player->socket != -1)
 	{
 		if (player->state == LOBBY)
 		{
