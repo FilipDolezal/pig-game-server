@@ -140,6 +140,21 @@ player_t* find_disconnected_player(const char* nickname)
 	return NULL;
 }
 
+player_t* find_active_player_by_nickname(const char* nickname)
+{
+	pthread_mutex_lock(&lobby_mutex);
+	for (int i = 0; i < MAX_PLAYERS; ++i)
+	{
+		if (players[i].socket != -1 && strcmp(players[i].nickname, nickname) == 0)
+		{
+			pthread_mutex_unlock(&lobby_mutex);
+			return &players[i];
+		}
+	}
+	pthread_mutex_unlock(&lobby_mutex);
+	return NULL;
+}
+
 static void remove_player_from_room(room_t* room, player_t* player)
 {
 	if (!room || !player) return;
@@ -186,3 +201,15 @@ void leave_room(player_t* player)
 	}
 	pthread_mutex_unlock(&lobby_mutex);
 }
+
+void handle_player_disconnect(player_t* player)
+{
+	pthread_mutex_lock(&lobby_mutex);
+	if (player)
+	{
+		player->socket = -1;
+		player->disconnected_timestamp = time(NULL);
+	}
+	pthread_mutex_unlock(&lobby_mutex);
+}
+

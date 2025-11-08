@@ -199,17 +199,13 @@ void* game_thread_func(void* arg)
 							send_structured_message(other_player->socket, S_OPPONENT_DISCONNECTED, 0);
 						}
 
+						// Use the new thread-safe function to handle the disconnect
+						handle_player_disconnect(sending_player);
+						game.player_fds[i] = -1;
+
 						// Lock the room mutex to update its state
 						pthread_mutex_lock(&room->mutex);
-
-						// Set the room state to PAUSED
 						room->state = PAUSED;
-						// Mark the player's socket as invalid (-1)
-						sending_player->socket = -1;
-						game.player_fds[i] = -1;
-						// Record the time of disconnection
-						sending_player->disconnected_timestamp = time(NULL);
-
 						pthread_mutex_unlock(&room->mutex);
 					}
 				}
@@ -223,11 +219,9 @@ void* game_thread_func(void* arg)
 	{
 		if (room->players[i])
 		{
-			if (room->players[i]->socket != -1)
-			{
-				room->players[i]->state = LOBBY;
-				room->players[i]->room_id = -1;
-			}
+			// Reset state for all players who were in the game, connected or not.
+			room->players[i]->state = LOBBY;
+			room->players[i]->room_id = -1;
 		}
 	}
 	// Reset the room to a WAITING state for new players
@@ -299,7 +293,8 @@ static void handle_main_loop(player_t* player);
 void* client_handler_thread(void* arg)
 {
 	player_t* player = (player_t*)arg;
-	LOG(LOG_INFO, "New client handler thread started for socket %d.", player->socket);
+	const int client_socket = player->socket;
+	LOG(LOG_INFO, "New client handler thread started for socket %d.", client_socket);
 
 	player = handle_login_and_reconnect(player);
 
@@ -308,7 +303,7 @@ void* client_handler_thread(void* arg)
 		handle_main_loop(player);
 	}
 
-	LOG(LOG_INFO, "Client handler thread for socket %d is exiting.", player->socket);
+	LOG(LOG_INFO, "Client handler thread for socket %d is exiting.", client_socket);
 	// Thread exit is handled within the helpers on error, or here on normal completion.
 	pthread_exit(NULL);
 }
@@ -350,6 +345,16 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	{
 		LOG(LOG_WARN, "Empty nickname from socket %d.", client_socket);
 		send_error(client_socket, E_INVALID_NICKNAME);
+		remove_player(player);
+		close(client_socket);
+		return NULL;
+	}
+
+	// Check if a player with this nickname is already active
+	if (find_active_player_by_nickname(nickname))
+	{
+		LOG(LOG_WARN, "Player tried to connect with active nickname: %s", nickname);
+		send_error(client_socket, E_NICKNAME_IN_USE);
 		remove_player(player);
 		close(client_socket);
 		return NULL;
@@ -609,7 +614,7 @@ int run_server(const int port, const char* address)
 	// Bind the socket to the specified IP address and port
 	if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
 	{
-		LOG(LOG_ERROR, "bind() failed: %s", strerror(errno));
+	LOG(LOG_ERROR, "bind() failed: %s", strerror(errno));
 		close(server_fd);
 		return -1;
 	}

@@ -86,9 +86,22 @@ room_t* get_room(int room_id);
 player_t* find_disconnected_player(const char* nickname);
 
 /**
+ * @brief Finds an active (connected) player by their nickname.
+ * @param nickname The nickname of the player to find.
+ * @return A pointer to the player_t object if found, otherwise NULL.
+ */
+player_t* find_active_player_by_nickname(const char* nickname);
+
+/**
  * @brief Removes a player from a waiting room.
  * @param player A pointer to the player_t object to remove from the room.
  */
 void leave_room(player_t* player);
+
+/**
+ * @brief Handles the disconnection of a player during a game.
+ * @param player A pointer to the player_t object that has disconnected.
+ */
+void handle_player_disconnect(player_t* player);
 
 #endif // LOBBY_H

@@ -31,6 +31,7 @@ static const char* server_error_strings[] = {
 	[E_CANNOT_JOIN] = "CANNOT_JOIN",
 	[E_OPPONENT_QUIT] = "OPPONENT_QUIT",
 	[E_OPPONENT_TIMEOUT] = "OPPONENT_TIMEOUT",
+	[E_NICKNAME_IN_USE] = "NICKNAME_IN_USE",
 };
 
 int send_error(const int socket, const server_error_t error)

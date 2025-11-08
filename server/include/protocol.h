@@ -49,6 +49,7 @@ typedef enum
 	E_CANNOT_JOIN,
 	E_OPPONENT_QUIT,
 	E_OPPONENT_TIMEOUT,
+	E_NICKNAME_IN_USE,
 } server_error_t;
 
 
