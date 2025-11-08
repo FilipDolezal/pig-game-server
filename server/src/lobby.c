@@ -2,10 +2,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "config.h"
 
 // Global arrays for players and rooms
-static player_t players[MAX_PLAYERS];
-static room_t rooms[MAX_ROOMS];
+player_t* players;
+room_t* rooms;
 static int player_count = 0;
 static pthread_mutex_t lobby_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -15,6 +16,8 @@ static void remove_player_from_room(room_t* room, player_t* player);
 void init_lobby()
 {
 	pthread_mutex_lock(&lobby_mutex);
+	players = malloc(sizeof(player_t) * MAX_PLAYERS);
+	rooms = malloc(sizeof(room_t) * MAX_ROOMS);
 	for (int i = 0; i < MAX_PLAYERS; ++i)
 	{
 		players[i].socket = -1;
@@ -85,7 +88,7 @@ void remove_player(player_t* player)
 	pthread_mutex_unlock(&lobby_mutex);
 }
 
-int join_room(int room_id, player_t* player)
+int join_room(const int room_id, player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
 

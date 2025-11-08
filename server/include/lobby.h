@@ -4,7 +4,6 @@
 #include <pthread.h>
 #include <time.h>
 #include "config.h"
-#include "protocol.h" // For MSG_MAX_LEN
 
 typedef enum
 {
@@ -41,6 +40,9 @@ typedef struct room_s
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
 } room_t;
+
+extern player_t* players;
+extern room_t* rooms;
 
 // Function declarations
 void init_lobby();

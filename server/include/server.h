@@ -4,7 +4,7 @@
 #include "game.h"
 
 /** Runs the game server, handling client connections and game sessions. */
-int run_server(int port);
+int run_server(int port, const char* address);
 
 void broadcast_game_start(const room_t* room, int first_to_act);
 

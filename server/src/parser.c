@@ -28,11 +28,11 @@ int parse_command(char* buffer, parsed_command_t* out_cmd)
 		return -1;
 	}
 
-	char* saveptr1;
-	char* saveptr2;
+	char* ptr_1;
+	char* ptr_2;
 
 	// The first token is the command verb
-	const char* verb = strtok_r(buffer, "|", &saveptr1);
+	const char* verb = strtok_r(buffer, "|", &ptr_1);
 	if (verb == NULL)
 	{
 		return -1; // Empty command
@@ -42,20 +42,20 @@ int parse_command(char* buffer, parsed_command_t* out_cmd)
 
 	// Subsequent tokens are arguments
 	char* token;
-	while ((token = strtok_r(NULL, "|", &saveptr1)) != NULL)
+	while ((token = strtok_r(NULL, "|", &ptr_1)) != NULL)
 	{
 		if (out_cmd->arg_count >= MAX_ARGS)
 		{
 			return -1; // Too many arguments
 		}
 
-		char* key = strtok_r(token, ":", &saveptr2);
+		char* key = strtok_r(token, ":", &ptr_2);
 		if (key == NULL)
 		{
 			return -1; // Argument without a key
 		}
 
-		char* value = strtok_r(NULL, ":", &saveptr2);
+		char* value = strtok_r(NULL, ":", &ptr_2);
 		if (value == NULL)
 		{
 			return -1; // Argument without a value

@@ -11,16 +11,15 @@ void init_game(game_state* game, const int p1_fd, const int p2_fd)
 	game->player_fds[1] = p2_fd;
 	game->scores[0] = 0;
 	game->scores[1] = 0;
-	game->current_player = rand() % 2;
+	game->current_player = rand_r(&game->rand_seed) % 2;
 	game->turn_score = 0;
 	game->game_over = 0;
 	game->roll_result = 0;
-	srand(time(NULL));
 }
 
 void handle_roll(game_state* game)
 {
-	int roll = (rand() % 6) + 1;
+	const int roll = (rand_r(&game->rand_seed) % 6) + 1;
 	game->roll_result = roll;
 
 	if (roll == 1)

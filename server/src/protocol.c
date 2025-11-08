@@ -60,7 +60,7 @@ int send_structured_message(const int socket, const server_command_t command, co
 ssize_t receive_command(player_t* player, char* out_command_buffer)
 {
 	// Search for a newline in the existing buffer
-	char* newline_ptr = strchr(player->read_buffer, '\n');
+	const char* newline_ptr = strchr(player->read_buffer, '\n');
 
 	// If no newline, read more data from the socket
 	while (newline_ptr == NULL)
@@ -74,7 +74,7 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 			return -2; // Special error for "line too long" or un-parsable buffer
 		}
 
-		ssize_t bytes_read = read(
+		const ssize_t bytes_read = read(
 			player->socket,
 			player->read_buffer + player->buffer_len,
 			sizeof(player->read_buffer) - 1 - player->buffer_len
@@ -94,7 +94,7 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 	}
 
 	// A full command (ending in \n) is in the buffer. Extract it.
-	size_t cmd_len = newline_ptr - player->read_buffer;
+	const size_t cmd_len = newline_ptr - player->read_buffer;
 
 	// Copy the command to the output buffer and null-terminate it
 	strncpy(out_command_buffer, player->read_buffer, cmd_len);

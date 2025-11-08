@@ -21,6 +21,9 @@ void* game_thread_func(void* arg)
 	room_t* room = (room_t*)arg;
 	game_state game;
 
+	// Seed the random number generator for this game thread
+	game.rand_seed = time(NULL) ^ (intptr_t)room;
+
 	init_game(&game, room->players[0]->socket, room->players[1]->socket);
 	broadcast_game_start(room, game.current_player);
 
@@ -226,13 +229,13 @@ void broadcast_game_start(const room_t* room, const int first_to_act)
 
 	send_structured_message(
 		curr->socket, S_GAME_START, 2,
-		K_OPPONENT_NICK, next->nickname,
+		K_OPP_NICK, next->nickname,
 		K_YOUR_TURN, "1"
 	);
 
 	send_structured_message(
 		next->socket, S_GAME_START, 2,
-		K_OPPONENT_NICK, curr->nickname,
+		K_OPP_NICK, curr->nickname,
 		K_YOUR_TURN, "0"
 	);
 }
@@ -254,7 +257,7 @@ void broadcast_game_state(const room_t* room, const game_state* game)
 		K_OPP_SCORE, next_score,
 		K_TURN_SCORE, turn_score,
 		K_ROLL, roll_result,
-		K_CURRENT_PLAYER, curr->nickname
+		K_CURRENT, curr->nickname
 	);
 
 	send_structured_message(
@@ -263,7 +266,7 @@ void broadcast_game_state(const room_t* room, const game_state* game)
 		K_OPP_SCORE, curr_score,
 		K_TURN_SCORE, turn_score,
 		K_ROLL, roll_result,
-		K_CURRENT_PLAYER, curr->nickname
+		K_CURRENT, curr->nickname
 	);
 }
 
@@ -311,7 +314,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 		return NULL;
 	}
 
-	const char* nick_val = get_command_arg(&cmd, K_NICKNAME);
+	const char* nick_val = get_command_arg(&cmd, K_NICK);
 	if (nick_val)
 	{
 		strncpy(nickname, nick_val, NICKNAME_LEN - 1);
@@ -429,7 +432,7 @@ static void handle_main_loop(player_t* player)
 					{
 						char num_rooms_str[4];
 						sprintf(num_rooms_str, "%d", MAX_ROOMS);
-						send_structured_message(client_socket, S_ROOM_LIST, 1, K_NUMBER, num_rooms_str);
+						send_structured_message(client_socket, S_ROOM_LIST, 1, K_COUNT, num_rooms_str);
 
 						for (int i = 0; i < MAX_ROOMS; ++i)
 						{
@@ -453,9 +456,9 @@ static void handle_main_loop(player_t* player)
 
 							send_structured_message(
 								client_socket, S_ROOM_INFO, 4,
-								K_ROOM_ID, id_str,
-								K_PLAYER_COUNT, p_count_str,
-								K_MAX_PLAYERS, max_p_str,
+								K_ROOM, id_str,
+								K_COUNT, p_count_str,
+								K_MAX, max_p_str,
 								K_STATE, state_str
 							);
 						}
@@ -463,7 +466,7 @@ static void handle_main_loop(player_t* player)
 					}
 				case CMD_JOIN_ROOM:
 					{
-						const char* room_id_str = get_command_arg(&lobby_cmd, K_ROOM_ID);
+						const char* room_id_str = get_command_arg(&lobby_cmd, K_ROOM);
 						if (!room_id_str)
 						{
 							send_error(client_socket, E_INVALID_COMMAND);
@@ -529,7 +532,7 @@ static void handle_main_loop(player_t* player)
 	}
 }
 
-int run_server(const int port)
+int run_server(const int port, const char* address)
 {
 	// Structure to hold server address information
 	struct sockaddr_in server_addr;
@@ -556,7 +559,7 @@ int run_server(const int port)
 	// Initialize server address structure
 	memset(&server_addr, 0, sizeof(server_addr));
 	server_addr.sin_family = AF_INET; // Use IPv4
-	server_addr.sin_addr.s_addr = INADDR_ANY; // Listen on all available network interfaces
+	server_addr.sin_addr.s_addr = inet_addr(address); // Listen on the specified network interface
 	server_addr.sin_port = htons(port); // Convert port number to network byte order
 
 	// Bind the socket to the specified IP address and port

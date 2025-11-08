@@ -1,13 +1,8 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-#define MSG_MAX_LEN 256
 #include <stdio.h>
-
-// Forward declaration to break circular dependency
-struct player_s;
-typedef struct player_s player_t;
-
+#include "lobby.h"
 
 // Commands from Client to Server
 
@@ -59,21 +54,19 @@ typedef enum
 
 // Message Keys
 
-#define K_COMMAND "command"
+#define K_CMD "cmd"
 
 #define K_MSG "msg"
 
-#define K_NICKNAME "nickname"
+#define K_NICK "nick"
 
-#define K_ROOM_ID "room_id"
+#define K_ROOM "room"
 
-#define K_PLAYER_COUNT "player_count"
-
-#define K_MAX_PLAYERS "max_players"
+#define K_MAX "max"
 
 #define K_STATE "state"
 
-#define K_OPPONENT_NICK "opponent_nick"
+#define K_OPP_NICK "opp_nick"
 
 #define K_YOUR_TURN "your_turn"
 
@@ -83,9 +76,9 @@ typedef enum
 
 #define K_TURN_SCORE "turn_score"
 
-#define K_CURRENT_PLAYER "current_player"
+#define K_CURRENT "current"
 
-#define K_NUMBER "number"
+#define K_COUNT "count"
 
 #define K_ROLL "roll"
 

@@ -11,6 +11,7 @@ typedef struct
 	int turn_score;
 	int roll_result;
 	int game_over;
+	unsigned int rand_seed;
 } game_state;
 
 void init_game(game_state* game, int p1_fd, int p2_fd);

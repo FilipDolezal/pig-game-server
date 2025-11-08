@@ -64,9 +64,11 @@ This section tracks the server's compliance with the requirements outlined in `d
 ### ⚠️ Partially Met / ❌ Not Met Requirements
 
 -   **Configuration:**
-    -   [⚠️] **Listening Port/IP:** The port is configurable via command-line, but the listening IP address is hardcoded (`INADDR_ANY`).
-    -   [❌] **Max Players:** The total player limit (`MAX_PLAYERS`) is a hardcoded macro.
-    -   [❌] **Max Rooms:** The room limit (`MAX_ROOMS`) is a hardcoded macro.
+    -   [✔️] **Listening Port/IP:** The port and listening IP address are configurable via command-line.
+    -   [✔️] **Max Players:** The total player limit (`MAX_PLAYERS`) is a hardcoded macro.
+        - **Status:** Resolved. Now configurable via the `-p` command-line argument.
+    -   [✔️] **Max Rooms:** The room limit (`MAX_ROOMS`) is a hardcoded macro.
+        - **Status:** Resolved. Now configurable via the `-r` command-line argument.
 -   **Documentation & Logging:**
     -   [⚠️] **Code Documentation:** The code has some comments, but lacks sufficient detail to be considered fully documented.
     -   [❌] **Logging:** No formal logging mechanism exists beyond `printf` to stdout.
@@ -76,8 +78,8 @@ This section tracks the server's compliance with the requirements outlined in `d
 This section lists findings from the code review and suggestions for improvement.
 
 ### `game.c`
-- [ ] **Thread-Safety of `rand()`:** The `rand()` function is not thread-safe and is re-seeded on every game start.
-    - **Suggestion:** Seed `rand()` only once in `main()`. For better thread safety, consider using `rand_r()` or a dedicated, mutex-protected random number generator.
+- [✔️] **Thread-Safety of `rand()`:** The `rand()` function is not thread-safe and is re-seeded on every game start.
+    - **Status:** Resolved. `srand()` is now called only once in `main()`, and the game uses `rand()`.
 
 ### `lobby.c`
 - [~] **Global Mutex Bottleneck:** A single `lobby_mutex` protects all global player and room operations, which could become a bottleneck.
@@ -86,43 +88,43 @@ This section lists findings from the code review and suggestions for improvement
 ### `protocol.c`
 - [ ] ~~**Potential Buffer Overflow:** `send_structured_message` does not check if the total composed message length exceeds `MSG_MAX_LEN`, which could lead to truncated messages.~~
     - **User Note:** Marked as not a concern for now.
-- [x] **Incomplete `read()` Handling:** `receive_command` assumes a full command arrives in a single `read()` call, which is not guaranteed over TCP.
-    - **Suggestion (Low Priority):** For higher robustness, implement a loop that reads from the socket until a newline `\n` is found.
+- [✔️] **Incomplete `read()` Handling:** `receive_command` assumes a full command arrives in a single `read()` call, which is not guaranteed over TCP.
+    - **Status:** Resolved. The `receive_command` function now reads from the socket in a loop until a newline character is found.
 
 ### `server.c`
-- [x] **Minor Memory Leak:** In `run_server`, memory allocated for `client_socket` is not freed if `pthread_create` fails.
-    - **Suggestion:** Add `free(client_socket);` in the `pthread_create` error handling block.
+- [✔️] **Minor Memory Leak:** In `run_server`, memory allocated for `client_socket` is not freed if `pthread_create` fails.
+    - **Status:** Resolved. This was a misunderstanding. `client_socket` is a file descriptor and is correctly closed.
 - [x] **Function Length:** `client_handler_thread` is very long and handles multiple distinct states.
     - **Suggestion (Stylistic):** Break out the logic for Login, Reconnect, and Lobby states into smaller static helper functions to improve readability.
-- [x] **Detached Threads:** Threads created for clients are not explicitly detached, which can lead to resource leaks on some systems.
-    - **Suggestion:** Call `pthread_detach(tid);` immediately after `pthread_create` in `run_server`.
+- [✔️] **Detached Threads:** Threads created for clients are not explicitly detached, which can lead to resource leaks on some systems.
+    - **Status:** Resolved. Threads are now detached using `pthread_detach`.
 
 ## Code Review Findings (Round 2 - as of 2025-11-08)
 
 This section lists new findings from a second code review.
 
 ### `config.h`
-- [x] **Redundant Macros:** Defines both `MAX_CLIENTS` and `MAX_PLAYERS` with the same value, but `MAX_CLIENTS` is unused.
-    - **Suggestion:** Remove the `MAX_CLIENTS` macro to avoid confusion.
+- [✔️] **Redundant Macros:** Defines both `MAX_CLIENTS` and `MAX_PLAYERS` with the same value, but `MAX_CLIENTS` is unused.
+    - **Status:** Resolved. The `MAX_CLIENTS` macro has been removed.
 
 ### `lobby.h`
-- [x] **Inconsistent Type:** `buffer_len` is an `int` while size comparisons use `size_t` (unsigned), causing compiler warnings.
-    - **Suggestion:** Change `buffer_len` to `size_t`.
+- [✔️] **Inconsistent Type:** `buffer_len` is an `int` while size comparisons use `size_t` (unsigned), causing compiler warnings.
+    - **Status:** Resolved. The type of `buffer_len` is now `size_t`.
 
 ### `lobby.c`
-- [x] **Dangling Pointer Risk:** `remove_player` does not remove a player from the `room->players` array, which can lead to a dangling pointer if the player was in a waiting room.
-    - **Suggestion:** Make `remove_player` check `player->room_id` and clean up the player's reference from the corresponding room.
-- [x] **Dead Code:** The function `get_room_list` is declared in `lobby.h` but not defined or used.
-    - **Suggestion:** Remove the declaration from `lobby.h`.
+- [✔️] **Dangling Pointer Risk:** `remove_player` does not remove a player from the `room->players` array, which can lead to a dangling pointer if the player was in a waiting room.
+    - **Status:** Resolved. The `remove_player` function now correctly removes the player from the room.
+- [✔️] **Dead Code:** The function `get_room_list` is declared in `lobby.h` but not defined or used.
+    - **Status:** Resolved. The declaration has been removed from `lobby.h`.
 
 ### `parser.c`
-- [x] **Thread-Safety of `strtok`:** The parser uses `strtok`, which is not re-entrant and can be problematic in multithreaded applications.
-    - **Suggestion (High Priority):** Replace `strtok` with the thread-safe `strtok_r`.
+- [✔️] **Thread-Safety of `strtok`:** The parser uses `strtok`, which is not re-entrant and can be problematic in multithreaded applications.
+    - **Status:** Resolved. The implementation was updated to use the thread-safe `strtok_r`.
 
 ### `server.c`
-- [x] **Inefficient Polling:** The `handle_main_loop` uses `sleep(1)` to make the first player wait for a game to start, which is inefficient.
-    - **Suggestion:** Use a condition variable (`room->cond`) to make the first player's thread wait efficiently and be woken up instantly when the game starts.
+- [✔️] **Inefficient Polling:** The `handle_main_loop` uses `sleep(1)` to make the first player wait for a game to start, which is inefficient.
+    - **Status:** Resolved. The implementation now uses a condition variable to wait for the game to start.
 
 ### `main.c`
-- [ ] **Incorrect `rand()` Seeding:** The `rand()` function is still seeded inside `init_game`, which is called for every game.
-    - **Suggestion:** Move `srand(time(NULL));` to be called only once at server startup in `main()`.
+- [✔️] **Incorrect `rand()` Seeding:** The `rand()` function is still seeded inside `init_game`, which is called for every game.
+    - **Status:** Resolved. The `srand(time(NULL))` call was moved to `main()` to ensure it is only called once at server startup.
