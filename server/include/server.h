@@ -12,6 +12,11 @@
 int run_server(int port, const char* address);
 
 /**
+* TODO
+*/
+void broadcast_game_over(const room_t* room, const game_state* game);
+
+/**
  * @brief Broadcasts the start of a game to both players in a room.
  * @param room The room where the game is starting.
  * @param first_to_act The index of the player who will act first.

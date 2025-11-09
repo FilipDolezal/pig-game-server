@@ -55,7 +55,8 @@ void* game_thread_func(void* arg)
 				if (room->players[winner_idx]->socket != -1)
 				{
 					send_structured_message(
-						room->players[winner_idx]->socket, S_GAME_WIN, 1, K_MSG, "Your opponent timed out."
+						room->players[winner_idx]->socket, S_GAME_WIN, 1,
+						K_MSG, "Your opponent timed out."
 					);
 				}
 				break; // Exit the PAUSED loop
@@ -133,10 +134,12 @@ void* game_thread_func(void* arg)
 				// Check if this player's socket has data to be read
 				if (FD_ISSET(game.player_fds[i], &read_fds))
 				{
-					player_t* sending_player = room->players[i];
-					const player_t* other_player = room->players[1 - i];
-					char command_buffer[MSG_MAX_LEN];
+					const int sending_player_idx = i;
+					const int other_player_idx = 1 - i;
+					player_t* sending_player = room->players[sending_player_idx];
+					const player_t* other_player = room->players[other_player_idx];
 
+					char command_buffer[MSG_MAX_LEN];
 					if (receive_command(sending_player, command_buffer) > 0)
 					{
 						LOG(LOG_DEBUG, "Received from player %s: %s", sending_player->nickname, command_buffer);
@@ -155,36 +158,40 @@ void* game_thread_func(void* arg)
 						{
 							LOG(LOG_INFO, "Player %s quit game in room %d.", sending_player->nickname, room->id);
 							game.game_over = 1;
-							send_structured_message(sending_player->socket, S_GAME_LOSE, 0);
-							if (other_player->socket != -1)
+							game.game_winner = other_player_idx;
+						}
+						// Other commands are only valid if it's the sender's turn
+						else if (i == game.current_player)
+						{
+							if (cmd.type == CMD_ROLL)
 							{
-								send_structured_message(other_player->socket, S_GAME_WIN, 0);
+								handle_roll(&game);
 							}
-							// Break the inner for-loop to proceed to game cleanup
-							break;
+							else if (cmd.type == CMD_HOLD)
+							{
+								handle_hold(&game);
+							}
+							else
+							{
+								LOG(
+									LOG_WARN, "Player %s sent invalid command: %s",
+									sending_player->nickname, command_buffer
+								);
+
+								continue;
+							}
 						}
 
-						// Other commands are only valid if it's the sender's turn
-						if (i == game.current_player)
+						if (!game.game_over)
 						{
-							switch (cmd.type)
-							{
-								case CMD_ROLL:
-									handle_roll(&game);
-									broadcast_game_state(room, &game);
-									break;
-								case CMD_HOLD:
-									handle_hold(&game);
-									broadcast_game_state(room, &game);
-									break;
-								default:
-									LOG(
-										LOG_WARN, "Player %s sent out-of-turn/unknown command.",
-										sending_player->nickname
-									);
-								// Ignore unknown or out-of-turn commands.
-									break;
-							}
+							// Game continues, just broadcast state
+							broadcast_game_state(room, &game);
+						}
+						else
+						{
+							// game is over, broadcast score + break loop
+							broadcast_game_over(room, &game);
+							break;
 						}
 					}
 					else
@@ -231,6 +238,22 @@ void* game_thread_func(void* arg)
 	room->players[1] = NULL;
 	// Exit the thread
 	pthread_exit(NULL);
+}
+
+void broadcast_game_over(const room_t* room, const game_state* game)
+{
+	if (game->game_winner > -1)
+	{
+		const player_t* winner = room->players[game->game_winner];
+		const player_t* looser = room->players[1 - game->game_winner];
+
+		send_structured_message(winner->socket, S_GAME_WIN, 0);
+		if (looser->socket != -1)
+		{
+			send_structured_message(looser->socket, S_GAME_LOSE, 0);
+		}
+	}
+	// todo else broadcast game over without winner/loser
 }
 
 void broadcast_game_start(const room_t* room, const int first_to_act)
@@ -440,12 +463,12 @@ static player_t* handle_login_and_reconnect(player_t* player)
 static void handle_main_loop(player_t* player)
 {
 	const int client_socket = player->socket;
-	char buffer[MSG_MAX_LEN];
 
-	while (player && player->socket != -1)
+	while (player->socket != -1)
 	{
 		if (player->state == LOBBY)
 		{
+			char buffer[MSG_MAX_LEN];
 			if (receive_command(player, buffer) <= 0)
 			{
 				LOG(LOG_INFO, "Player %s disconnected from lobby.", player->nickname);
@@ -614,7 +637,7 @@ int run_server(const int port, const char* address)
 	// Bind the socket to the specified IP address and port
 	if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
 	{
-	LOG(LOG_ERROR, "bind() failed: %s", strerror(errno));
+		LOG(LOG_ERROR, "bind() failed: %s", strerror(errno));
 		close(server_fd);
 		return -1;
 	}

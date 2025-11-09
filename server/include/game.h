@@ -11,6 +11,7 @@ typedef struct
 	int turn_score;
 	int roll_result;
 	int game_over;
+	int game_winner;
 	unsigned int rand_seed;
 } game_state;
 
@@ -39,11 +40,5 @@ void handle_hold(game_state* game);
  * @param game A pointer to the current game_state object.
  */
 void switch_player(game_state* game);
-
-/**
- * @brief Checks if the current player has won the game.
- * @param game A pointer to the current game_state object.
- */
-void check_winner(game_state* game);
 
 #endif // GAME_H
