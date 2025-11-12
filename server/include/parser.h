@@ -12,7 +12,8 @@ typedef enum
 	CMD_LEAVE_ROOM,
 	CMD_ROLL,
 	CMD_HOLD,
-	CMD_QUIT
+	CMD_QUIT,
+	CMD_EXIT
 } client_command_t;
 
 // A structure to hold a parsed command argument (key-value pair)

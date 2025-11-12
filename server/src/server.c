@@ -593,6 +593,13 @@ static void handle_main_loop(player_t* player)
 						}
 						break;
 					}
+				case CMD_EXIT:
+					{
+						LOG(LOG_INFO, "Player %s exiting from lobby.", player->nickname);
+						remove_player(player);
+						close(client_socket);
+						return;
+					}
 				default:
 					{
 						LOG(LOG_WARN, "Invalid command from %s in lobby. Disconnecting.", player->nickname);

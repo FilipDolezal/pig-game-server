@@ -14,6 +14,7 @@ static client_command_t get_command_type(const char* verb)
 	if (strcmp(verb, C_ROLL) == 0) return CMD_ROLL;
 	if (strcmp(verb, C_HOLD) == 0) return CMD_HOLD;
 	if (strcmp(verb, C_QUIT) == 0) return CMD_QUIT;
+	if (strcmp(verb, C_EXIT) == 0) return CMD_EXIT;
 	return CMD_UNKNOWN;
 }
 

@@ -22,6 +22,8 @@
 
 #define C_QUIT "QUIT"
 
+#define C_EXIT "EXIT"
+
 typedef enum
 {
 	S_OK,
