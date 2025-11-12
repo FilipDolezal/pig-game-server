@@ -181,6 +181,10 @@ void* game_thread_func(void* arg)
 								continue;
 							}
 						}
+						else
+						{
+							continue;
+						}
 
 						if (!game.game_over)
 						{
@@ -191,6 +195,7 @@ void* game_thread_func(void* arg)
 						{
 							// game is over, broadcast score + break loop
 							broadcast_game_over(room, &game);
+
 							break;
 						}
 					}
@@ -221,7 +226,9 @@ void* game_thread_func(void* arg)
 	}
 
 	LOG(LOG_INFO, "Game in room %d finished. Returning players to lobby.", room->id);
+	pthread_mutex_lock(&room->mutex);
 	// After the game loop ends, send players back to the lobby
+
 	for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
 	{
 		if (room->players[i])
@@ -232,10 +239,15 @@ void* game_thread_func(void* arg)
 		}
 	}
 	// Reset the room to a WAITING state for new players
+
 	room->state = WAITING;
 	room->player_count = 0;
 	room->players[0] = NULL;
 	room->players[1] = NULL;
+
+	// Wake up the client_handler_threads that are waiting for the game to end.
+	pthread_cond_broadcast(&room->cond);
+	pthread_mutex_unlock(&room->mutex);
 	// Exit the thread
 	pthread_exit(NULL);
 }
@@ -584,21 +596,15 @@ static void handle_main_loop(player_t* player)
 			if (room)
 			{
 				pthread_mutex_lock(&room->mutex);
-				// Wait until the game is no longer in the WAITING state.
-				while (room->state == WAITING)
+				// This thread's player is in a game. It should wait until the game is over.
+				// The game is over when the player's state is no longer IN_GAME.
+				// We wait on the room's condition variable, which the game thread will
+				// signal when the game ends.
+				while (player->state == IN_GAME)
 				{
-					LOG(LOG_DEBUG, "Player %s is waiting for game to start in room %d.", player->nickname, room->id);
 					pthread_cond_wait(&room->cond, &room->mutex);
 				}
 				pthread_mutex_unlock(&room->mutex);
-
-				LOG(LOG_DEBUG, "Player %s is joining game thread for room %d.", player->nickname, room->id);
-				// Now that we're woken up, the game has started, been paused, or aborted.
-				// It's safe to join the game thread.
-				if (room->state == IN_PROGRESS || room->state == PAUSED || room->state == ABORTED)
-				{
-					pthread_join(room->game_thread, NULL);
-				}
 			}
 		}
 	}
