@@ -21,12 +21,10 @@ int init_logger(const char* log_dir);
 /**
  * @brief Logs a message to the appropriate component log file and the all.log file. This function is thread-safe.
  * @param component The log component.
- * @param file The source file from which the log originates.
- * @param line The line number in the source file.
  * @param fmt The format string for the message.
  * @param ... Variable arguments for the format string.
  */
-void app_log(log_component_t component, const char* file, int line, const char* fmt, ...);
+void app_log(log_component_t component, const char* fmt, ...);
 
 /**
  * @brief Closes all logger files.
@@ -34,6 +32,6 @@ void app_log(log_component_t component, const char* file, int line, const char* 
 void close_logger();
 
 // Macro to automatically pass file and line number
-#define LOG(component, fmt, ...) app_log(component, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOG(component, fmt, ...) app_log(component, fmt, ##__VA_ARGS__)
 
 #endif // LOGGER_H
