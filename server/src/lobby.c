@@ -188,9 +188,10 @@ static void remove_player_from_room(room_t* room, player_t* player)
 	}
 }
 
-void leave_room(player_t* player)
+int leave_room(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);
+	int result = -1; // Default to failure
 	if (player->state == IN_GAME && player->room_id != -1)
 	{
 		room_t* room = &rooms[player->room_id];
@@ -204,9 +205,11 @@ void leave_room(player_t* player)
 			{
 				room->state = WAITING;
 			}
+			result = 0; // Success
 		}
 	}
 	pthread_mutex_unlock(&lobby_mutex);
+	return result;
 }
 
 void handle_player_disconnect(player_t* player)

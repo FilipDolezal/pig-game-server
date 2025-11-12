@@ -93,10 +93,11 @@ player_t* find_disconnected_player(const char* nickname);
 player_t* find_active_player_by_nickname(const char* nickname);
 
 /**
- * @brief Removes a player from a waiting room.
- * @param player A pointer to the player_t object to remove from the room.
+ * @brief Removes a player from their current room if the room is in a WAITING state.
+ * @param player The player to remove.
+ * @return 0 on success, -1 on failure (e.g., game in progress).
  */
-void leave_room(player_t* player);
+int leave_room(player_t* player);
 
 /**
  * @brief Handles the disconnection of a player during a game.

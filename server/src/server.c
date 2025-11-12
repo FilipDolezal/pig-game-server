@@ -157,6 +157,7 @@ void* game_thread_func(void* arg)
 						if (cmd.type == CMD_QUIT)
 						{
 							LOG(LOG_INFO, "Player %s quit game in room %d.", sending_player->nickname, room->id);
+							send_structured_message(sending_player->socket, S_OK, 0);
 							game.game_over = 1;
 							game.game_winner = other_player_idx;
 						}
@@ -177,12 +178,18 @@ void* game_thread_func(void* arg)
 									LOG_WARN, "Player %s sent invalid command: %s",
 									sending_player->nickname, command_buffer
 								);
-
+								send_error(sending_player->socket, E_INVALID_COMMAND);
 								continue;
 							}
 						}
 						else
 						{
+							// It's not this player's turn.
+							LOG(
+								LOG_WARN, "Player %s sent command when it wasn't their turn.",
+								sending_player->nickname
+							);
+							send_error(sending_player->socket, E_INVALID_COMMAND);
 							continue;
 						}
 
@@ -576,8 +583,14 @@ static void handle_main_loop(player_t* player)
 				case CMD_LEAVE_ROOM:
 					{
 						LOG(LOG_INFO, "Player %s leaving room.", player->nickname);
-						leave_room(player);
-						send_structured_message(client_socket, S_OK, 0);
+						if (leave_room(player) == 0)
+						{
+							send_structured_message(client_socket, S_OK, 0);
+						}
+						else
+						{
+							send_error(client_socket, E_GAME_IN_PROGRESS);
+						}
 						break;
 					}
 				default:
