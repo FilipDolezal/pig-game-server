@@ -4,6 +4,8 @@ project(ups-sp-server C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -g")
 
+add_definitions(-DPROJECT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
 include_directories(include)
 
 find_package(Threads REQUIRED)

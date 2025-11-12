@@ -14,7 +14,7 @@ int main(const int argc, char* argv[])
 {
 	int port = DEFAULT_PORT;
 	char* address = "0.0.0.0";
-	char* log_file = NULL;
+	char* log_dir = NULL;
 	int opt;
 
 	while ((opt = getopt(argc, argv, "p:r:a:l:")) != -1) {
@@ -29,10 +29,10 @@ int main(const int argc, char* argv[])
 				address = optarg;
 				break;
 			case 'l':
-				log_file = optarg;
+				log_dir = optarg;
 				break;
 			default:
-				fprintf(stderr, "Usage: %s [-a address] [-p max_players] [-r max_rooms] [-l logfile] [port]\n", argv[0]);
+				fprintf(stderr, "Usage: %s [-a address] [-p max_players] [-r max_rooms] [-l logdir] [port]\n", argv[0]);
 				exit(EXIT_FAILURE);
 		}
 	}
@@ -42,17 +42,17 @@ int main(const int argc, char* argv[])
 		port = atoi(argv[optind]);
 	}
 
-	if (init_logger(log_file) != 0) {
+	if (init_logger(log_dir) != 0) {
 		exit(EXIT_FAILURE);
 	}
 
 	init_lobby();
 
-	LOG(LOG_INFO, "Starting server on %s:%d, max players %d, max rooms %d", address, port, MAX_PLAYERS, MAX_ROOMS);
+	LOG(LOG_GENERAL, "Starting server on %s:%d, max players %d, max rooms %d", address, port, MAX_PLAYERS, MAX_ROOMS);
 
 	if (run_server(port, address) != 0)
 	{
-		LOG(LOG_ERROR, "Failed to run server");
+		LOG(LOG_GENERAL, "Failed to run server");
 		close_logger();
 		return 1;
 	}

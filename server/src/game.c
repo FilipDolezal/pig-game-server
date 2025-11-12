@@ -1,6 +1,7 @@
 #include "game.h"
 #include "protocol.h"
 #include "config.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -16,12 +17,14 @@ void init_game(game_state* game, const int p1_fd, const int p2_fd)
 	game->game_over = 0;
 	game->game_winner = -1;
 	game->roll_result = 0;
+	LOG(LOG_GAME, "New game initialized for players on sockets %d and %d.", p1_fd, p2_fd);
 }
 
 void handle_roll(game_state* game)
 {
 	const int roll = (rand_r(&game->rand_seed) % 6) + 1;
 	game->roll_result = roll;
+	LOG(LOG_GAME, "Player %d rolled a %d.", game->current_player, roll);
 
 	if (roll == 1)
 	{
@@ -43,6 +46,7 @@ void handle_roll(game_state* game)
 void handle_hold(game_state* game)
 {
 	game->scores[game->current_player] += game->turn_score;
+	LOG(LOG_GAME, "Player %d holds. Score for turn: %d. New total: %d.", game->current_player, game->turn_score, game->scores[game->current_player]);
 	game->turn_score = 0;
 	game->roll_result = 0;
 	switch_player(game);
@@ -51,4 +55,5 @@ void handle_hold(game_state* game)
 void switch_player(game_state* game)
 {
 	game->current_player = 1 - game->current_player;
+	LOG(LOG_GAME, "Switching turn to player %d.", game->current_player);
 }

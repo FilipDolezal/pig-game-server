@@ -40,6 +40,7 @@ void init_lobby()
 	}
 	player_count = 0;
 	pthread_mutex_unlock(&lobby_mutex);
+	LOG(LOG_LOBBY, "Lobby initialized with %d rooms and %d player slots.", MAX_ROOMS, MAX_PLAYERS);
 }
 
 player_t* add_player(const int socket)
@@ -63,6 +64,7 @@ player_t* add_player(const int socket)
 			players[i].buffer_len = 0;
 			players[i].read_buffer[0] = '\0';
 			player_count++;
+			LOG(LOG_LOBBY, "Player slot %d assigned to socket %d. Total players: %d", i, socket, player_count);
 			pthread_mutex_unlock(&lobby_mutex);
 			return &players[i];
 		}
@@ -76,6 +78,7 @@ void remove_player(player_t* player)
 	pthread_mutex_lock(&lobby_mutex);
 	if (player && player->socket != -1)
 	{
+		LOG(LOG_LOBBY, "Removing player %s (socket %d)", player->nickname, player->socket);
 		// If player was in a room, remove them from there first.
 		if (player->room_id != -1)
 		{
@@ -109,6 +112,7 @@ int join_room(const int room_id, player_t* player)
 	rooms[room_id].players[rooms[room_id].player_count++] = player;
 	player->state = IN_GAME;
 	player->room_id = room_id;
+	LOG(LOG_LOBBY, "Player %s joined room %d", player->nickname, room_id);
 
 	if (rooms[room_id].player_count == MAX_PLAYERS_PER_ROOM)
 	{
@@ -198,6 +202,7 @@ int leave_room(player_t* player)
 		// A player can only leave a room if it's waiting for players
 		if (room->state == WAITING)
 		{
+			LOG(LOG_LOBBY, "Player %s left room %d", player->nickname, player->room_id);
 			remove_player_from_room(room, player);
 			player->state = LOBBY;
 			player->room_id = -1;
@@ -217,6 +222,7 @@ void handle_player_disconnect(player_t* player)
 	pthread_mutex_lock(&lobby_mutex);
 	if (player)
 	{
+		LOG(LOG_LOBBY, "Handling disconnect for player %s (socket %d)", player->nickname, player->socket);
 		player->socket = -1;
 		player->disconnected_timestamp = time(NULL);
 	}
