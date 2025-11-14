@@ -580,19 +580,20 @@ static void handle_main_loop(player_t* player)
 						}
 						break;
 					}
-				case CMD_LEAVE_ROOM:
-					{
-						LOG(LOG_LOBBY, "Player %s leaving room.", player->nickname);
-						if (leave_room(player) == 0)
-						{
-							send_structured_message(client_socket, S_OK, 0);
-						}
-						else
-						{
-							send_error(client_socket, E_GAME_IN_PROGRESS);
-						}
-						break;
-					}
+				// todo: CMD_LEAVE_ROOM is only callable from IN_GAME player status
+				// case CMD_LEAVE_ROOM:
+				// 	{
+				// 		LOG(LOG_LOBBY, "Player %s leaving room.", player->nickname);
+				// 		if (leave_room(player) == 0)
+				// 		{
+				// 			send_structured_message(client_socket, S_OK, 0);
+				// 		}
+				// 		else
+				// 		{
+				// 			send_error(client_socket, E_GAME_IN_PROGRESS);
+				// 		}
+				// 		break;
+				// 	}
 				case CMD_EXIT:
 					{
 						LOG(LOG_LOBBY, "Player %s exiting from lobby.", player->nickname);
