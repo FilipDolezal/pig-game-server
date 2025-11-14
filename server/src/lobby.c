@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "config.h"
 #include "logger.h"
+#include "protocol.h" // Added for send_structured_message
 
 // Global arrays for players and rooms
 player_t* players;
@@ -13,6 +14,38 @@ static pthread_mutex_t lobby_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Forward declaration for static helper function
 static void remove_player_from_room(room_t* room, player_t* player);
+
+void broadcast_room_update(const room_t* room)
+{
+	char id_str[4], p_count_str[4], state_str[15];
+	sprintf(id_str, "%d", room->id);
+	sprintf(p_count_str, "%d", room->player_count);
+
+	switch (room->state)
+	{
+		case WAITING: strcpy(state_str, "WAITING");
+			break;
+		case IN_PROGRESS: strcpy(state_str, "IN_PROGRESS");
+			break;
+		case PAUSED: strcpy(state_str, "PAUSED");
+			break;
+		case ABORTED: strcpy(state_str, "ABORTED");
+			break;
+	}
+
+	for (int i = 0; i < MAX_PLAYERS; ++i)
+	{
+		if (players[i].socket != -1 && players[i].state == LOBBY)
+		{
+			send_structured_message(
+				players[i].socket, S_ROOM_INFO, 3,
+				K_ROOM, id_str,
+				K_COUNT, p_count_str,
+				K_STATE, state_str
+			);
+		}
+	}
+}
 
 void init_lobby()
 {
@@ -119,6 +152,7 @@ int join_room(const int room_id, player_t* player)
 		rooms[room_id].state = IN_PROGRESS;
 	}
 
+	broadcast_room_update(&rooms[room_id]);
 	pthread_mutex_unlock(&lobby_mutex);
 	return 0;
 }
@@ -187,9 +221,16 @@ static void remove_player_from_room(room_t* room, player_t* player)
 		{
 			room->players[i] = room->players[i + 1];
 		}
-		room->players[room->player_count - 1] = NULL; // Clear the last pointer
+		room->players[room->player_count - 1] = NULL;
 		room->player_count--;
 	}
+
+	if (room->player_count == 0)
+	{
+		room->state = WAITING;
+	}
+
+	broadcast_room_update(room);
 }
 
 int leave_room(player_t* player)
@@ -206,10 +247,6 @@ int leave_room(player_t* player)
 			remove_player_from_room(room, player);
 			player->state = LOBBY;
 			player->room_id = -1;
-			if (room->player_count == 0)
-			{
-				room->state = WAITING;
-			}
 			result = 0; // Success
 		}
 	}

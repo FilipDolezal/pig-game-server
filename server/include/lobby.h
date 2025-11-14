@@ -105,4 +105,17 @@ int leave_room(player_t* player);
  */
 void handle_player_disconnect(player_t* player);
 
+/**
+ * @brief Updates the state of a room and broadcasts the change to all lobby players.
+ * @param room_id The ID of the room to update.
+ * @param new_state The new state of the room.
+ */
+void update_room_state_and_broadcast(int room_id, room_state new_state);
+
+/**
+ * @brief Broadcasts the state of a specific room to all players in the LOBBY state.
+ * @param room A pointer to the room_t object whose state needs to be broadcast.
+ */
+void broadcast_room_update(const room_t* room);
+
 #endif // LOBBY_H

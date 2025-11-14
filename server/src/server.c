@@ -225,6 +225,7 @@ void* game_thread_func(void* arg)
 						// Lock the room mutex to update its state
 						pthread_mutex_lock(&room->mutex);
 						room->state = PAUSED;
+						broadcast_room_update(room);
 						pthread_mutex_unlock(&room->mutex);
 					}
 				}
@@ -245,12 +246,11 @@ void* game_thread_func(void* arg)
 			room->players[i]->room_id = -1;
 		}
 	}
-	// Reset the room to a WAITING state for new players
-
 	room->state = WAITING;
 	room->player_count = 0;
 	room->players[0] = NULL;
 	room->players[1] = NULL;
+	broadcast_room_update(room);
 
 	// Wake up the client_handler_threads that are waiting for the game to end.
 	pthread_cond_broadcast(&room->cond);
@@ -438,6 +438,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 				LOG(LOG_LOBBY, "Player %s resumed game in room %d.", player->nickname, room->id);
 				pthread_mutex_lock(&room->mutex);
 				room->state = IN_PROGRESS;
+				broadcast_room_update(room);
 				pthread_cond_signal(&room->cond);
 				pthread_mutex_unlock(&room->mutex);
 
