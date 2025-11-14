@@ -94,7 +94,13 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 	}
 
 	// A full command (ending in \n) is in the buffer. Extract it.
-	const size_t cmd_len = newline_ptr - player->read_buffer;
+	size_t cmd_len = newline_ptr - player->read_buffer;
+
+	// Trim trailing \r if it exists (for CRLF line endings)
+	if (cmd_len > 0 && player->read_buffer[cmd_len - 1] == '\r')
+	{
+		cmd_len--;
+	}
 
 	// Copy the command to the output buffer and null-terminate it
 	strncpy(out_command_buffer, player->read_buffer, cmd_len);
@@ -102,7 +108,7 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 
 	// Remove the extracted command (and the \n) from the player's buffer
 	// by shifting the remaining data to the beginning.
-	player->buffer_len -= (cmd_len + 1);
+	player->buffer_len -= (newline_ptr - player->read_buffer + 1);
 	memmove(player->read_buffer, newline_ptr + 1, player->buffer_len);
 	player->read_buffer[player->buffer_len] = '\0';
 
