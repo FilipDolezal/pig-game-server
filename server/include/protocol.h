@@ -30,7 +30,6 @@ typedef enum
 	S_ERROR,
 	S_WELCOME,
 	S_GAME_PAUSED,
-	S_ROOM_LIST,
 	S_ROOM_INFO,
 	S_JOIN_OK,
 	S_GAME_START,
@@ -65,8 +64,6 @@ typedef enum
 
 #define K_ROOM "room"
 
-#define K_MAX "max"
-
 #define K_STATE "state"
 
 #define K_OPP_NICK "opp_nick"
@@ -84,6 +81,10 @@ typedef enum
 #define K_COUNT "count"
 
 #define K_ROLL "roll"
+
+#define K_PLAYERS "players"
+
+#define K_ROOMS "rooms"
 
 
 /**

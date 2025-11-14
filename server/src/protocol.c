@@ -11,7 +11,6 @@ static const char* server_command_strings[] = {
 	[S_ERROR] = "ERROR",
 	[S_WELCOME] = "WELCOME",
 	[S_GAME_PAUSED] = "GAME_PAUSED",
-	[S_ROOM_LIST] = "ROOM_LIST",
 	[S_ROOM_INFO] = "ROOM_INFO",
 	[S_JOIN_OK] = "JOIN_OK",
 	[S_GAME_START] = "GAME_START",

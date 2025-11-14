@@ -352,8 +352,13 @@ void* client_handler_thread(void* arg)
 
 static player_t* handle_login_and_reconnect(player_t* player)
 {
+	char max_players_str[4];
+	char max_rooms_str[4];
+	sprintf(max_players_str, "%d", MAX_PLAYERS);
+	sprintf(max_rooms_str, "%d", MAX_ROOMS);
+
 	const int client_socket = player->socket;
-	send_structured_message(client_socket, S_WELCOME, 0);
+	send_structured_message(client_socket, S_WELCOME, 2, K_PLAYERS, max_players_str, K_ROOMS, max_rooms_str);
 
 	char buffer[MSG_MAX_LEN];
 	char nickname[NICKNAME_LEN] = {0};
@@ -511,17 +516,12 @@ static void handle_main_loop(player_t* player)
 			{
 				case CMD_LIST_ROOMS:
 					{
-						char num_rooms_str[4];
-						sprintf(num_rooms_str, "%d", MAX_ROOMS);
-						send_structured_message(client_socket, S_ROOM_LIST, 1, K_COUNT, num_rooms_str);
-
 						for (int i = 0; i < MAX_ROOMS; ++i)
 						{
 							const room_t* r = get_room(i);
-							char id_str[4], p_count_str[4], max_p_str[4], state_str[15];
+							char id_str[4], p_count_str[4], state_str[15];
 							sprintf(id_str, "%d", r->id);
 							sprintf(p_count_str, "%d", r->player_count);
-							sprintf(max_p_str, "%d", MAX_PLAYERS_PER_ROOM);
 
 							switch (r->state)
 							{
@@ -536,10 +536,9 @@ static void handle_main_loop(player_t* player)
 							}
 
 							send_structured_message(
-								client_socket, S_ROOM_INFO, 4,
+								client_socket, S_ROOM_INFO, 3,
 								K_ROOM, id_str,
 								K_COUNT, p_count_str,
-								K_MAX, max_p_str,
 								K_STATE, state_str
 							);
 						}
