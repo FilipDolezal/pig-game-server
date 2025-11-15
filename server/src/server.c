@@ -581,20 +581,6 @@ static void handle_main_loop(player_t* player)
 						}
 						break;
 					}
-				// todo: CMD_LEAVE_ROOM is only callable from IN_GAME player status
-				// case CMD_LEAVE_ROOM:
-				// 	{
-				// 		LOG(LOG_LOBBY, "Player %s leaving room.", player->nickname);
-				// 		if (leave_room(player) == 0)
-				// 		{
-				// 			send_structured_message(client_socket, S_OK, 0);
-				// 		}
-				// 		else
-				// 		{
-				// 			send_error(client_socket, E_GAME_IN_PROGRESS);
-				// 		}
-				// 		break;
-				// 	}
 				case CMD_EXIT:
 					{
 						LOG(LOG_LOBBY, "Player %s exiting from lobby.", player->nickname);
@@ -618,15 +604,76 @@ static void handle_main_loop(player_t* player)
 			if (room)
 			{
 				pthread_mutex_lock(&room->mutex);
-				// This thread's player is in a game. It should wait until the game is over.
-				// The game is over when the player's state is no longer IN_GAME.
-				// We wait on the room's condition variable, which the game thread will
-				// signal when the game ends.
-				while (player->state == IN_GAME)
+				if (room->state == WAITING)
 				{
-					pthread_cond_wait(&room->cond, &room->mutex);
+					// Player is waiting for an opponent. Wait with a timeout to allow leaving.
+					struct timespec ts;
+					clock_gettime(CLOCK_REALTIME, &ts);
+					ts.tv_sec += 1; // 1 second timeout
+
+					const int wait_result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
+					pthread_mutex_unlock(&room->mutex); // Unlock after wait
+
+					if (wait_result == ETIMEDOUT)
+					{
+						// Timeout: check for commands without blocking.
+						fd_set read_fds;
+						struct timeval tv = {0, 0};
+						FD_ZERO(&read_fds);
+						FD_SET(player->socket, &read_fds);
+
+						if (select(player->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
+						{
+							char buffer[MSG_MAX_LEN];
+							if (receive_command(player, buffer) > 0)
+							{
+								parsed_command_t cmd;
+								if (parse_command(buffer, &cmd) == 0 && cmd.type == CMD_LEAVE_ROOM)
+								{
+									if (leave_room(player) == 0)
+									{
+										send_structured_message(player->socket, S_OK, 0);
+									}
+									else
+									{
+										send_error(player->socket, E_GAME_IN_PROGRESS);
+									}
+								}
+								else if (cmd.type == CMD_EXIT)
+								{
+									LOG(LOG_LOBBY, "Player %s exiting from waiting room.", player->nickname);
+									leave_room(player); // Attempt to leave room cleanly
+									remove_player(player);
+									close(client_socket);
+									return;
+								}
+								else
+								{
+									send_error(player->socket, E_INVALID_COMMAND);
+								}
+							}
+							else
+							{
+								// Disconnected while waiting
+								LOG(LOG_LOBBY, "Player %s disconnected from waiting room.", player->nickname);
+								leave_room(player);
+								remove_player(player);
+								close(client_socket);
+								return;
+							}
+						}
+					}
+					// If wait was successful, loop will continue and re-evaluate states.
 				}
-				pthread_mutex_unlock(&room->mutex);
+				else
+				{
+					// Game is IN_PROGRESS or PAUSED. Wait until game is over.
+					while (player->state == IN_GAME)
+					{
+						pthread_cond_wait(&room->cond, &room->mutex);
+					}
+					pthread_mutex_unlock(&room->mutex);
+				}
 			}
 		}
 	}
