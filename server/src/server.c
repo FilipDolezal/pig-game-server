@@ -200,7 +200,8 @@ void* game_thread_func(void* arg)
 						}
 						else
 						{
-							// game is over, broadcast score + break loop
+							// game is over, broadcast final state, then broadcast winner/loser and break loop
+							broadcast_game_state(room, &game);
 							broadcast_game_over(room, &game);
 
 							break;
@@ -310,21 +311,21 @@ void broadcast_game_state(const room_t* room, const game_state* game)
 	sprintf(roll_result, "%d", game->roll_result);
 
 	send_structured_message(
-		curr->socket, S_GAME_STATE, 4,
+		curr->socket, S_GAME_STATE, 5,
 		K_MY_SCORE, curr_score,
 		K_OPP_SCORE, next_score,
 		K_TURN_SCORE, turn_score,
 		K_ROLL, roll_result,
-		K_CURRENT, curr->nickname
+		K_YOUR_TURN, "1"
 	);
 
 	send_structured_message(
-		next->socket, S_GAME_STATE, 4,
+		next->socket, S_GAME_STATE, 5,
 		K_MY_SCORE, next_score,
 		K_OPP_SCORE, curr_score,
 		K_TURN_SCORE, turn_score,
 		K_ROLL, roll_result,
-		K_CURRENT, curr->nickname
+		K_YOUR_TURN, "0"
 	);
 }
 
@@ -562,7 +563,7 @@ static void handle_main_loop(player_t* player)
 						LOG(LOG_LOBBY, "Player %s trying to join room %d.", player->nickname, room_id);
 						if (join_room(room_id, player) == 0)
 						{
-							send_structured_message(client_socket, S_JOIN_OK, 0);
+							send_structured_message(client_socket, S_JOIN_OK, 1, K_ROOM, room_id_str);
 							room_t* room = get_room(room_id);
 							if (room->player_count == MAX_PLAYERS_PER_ROOM)
 							{
