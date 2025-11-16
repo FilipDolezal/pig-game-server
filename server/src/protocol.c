@@ -33,9 +33,11 @@ static const char* server_error_strings[] = {
 	[E_NICKNAME_IN_USE] = "NICKNAME_IN_USE",
 };
 
-int send_error(const int socket, const server_error_t error)
+int send_error(const int socket, const char* command_str, const server_error_t error)
 {
-	return send_structured_message(socket, S_ERROR, 1, K_MSG, server_error_strings[error]);
+	return command_str
+		? send_structured_message(socket, S_ERROR, 2, K_MSG, server_error_strings[error], K_CMD, command_str)
+		: send_structured_message(socket, S_ERROR, 1, K_MSG, server_error_strings[error]);
 }
 
 int send_structured_message(const int socket, const server_command_t command, const int num_args, ...)

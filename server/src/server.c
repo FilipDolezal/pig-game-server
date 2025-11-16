@@ -21,7 +21,7 @@
 static void handle_game_input(room_t* room, game_state* game, int player_idx);
 static void reset_room_after_game(room_t* room);
 static player_t* handle_login_and_reconnect(player_t* player);
-static void handle_lobby_command(player_t* player, const parsed_command_t* cmd);
+static void handle_lobby_command(player_t* player, const parsed_command_t* cmd, const char* raw_cmd);
 static void handle_main_loop(player_t* player);
 
 
@@ -49,7 +49,7 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 		if (cmd.type == CMD_QUIT)
 		{
 			LOG(LOG_GAME, "Player %s quit game in room %d.", sending_player->nickname, room->id);
-			send_structured_message(sending_player->socket, S_OK, 0);
+			send_structured_message(sending_player->socket, S_OK, 1, K_CMD, C_QUIT);
 			game->game_over = 1;
 			game->game_winner = other_player_idx;
 		}
@@ -70,7 +70,7 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 					LOG_GAME, "Player %s sent invalid command: %s",
 					sending_player->nickname, command_buffer
 				);
-				send_error(sending_player->socket, E_INVALID_COMMAND);
+				send_error(sending_player->socket, NULL, E_INVALID_COMMAND);
 				return;
 			}
 		}
@@ -81,7 +81,7 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 				LOG_GAME, "Player %s sent command when it wasn't their turn.",
 				sending_player->nickname
 			);
-			send_error(sending_player->socket, E_INVALID_COMMAND);
+			send_error(sending_player->socket, NULL, E_INVALID_COMMAND);
 			return;
 		}
 
@@ -383,10 +383,19 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	}
 
 	parsed_command_t cmd;
-	if (parse_command(buffer, &cmd) != 0 || cmd.type != CMD_LOGIN)
+	if (parse_command(buffer, &cmd) != 0)
 	{
-		LOG(LOG_LOBBY, "Invalid login command from socket %d.", client_socket);
-		send_error(client_socket, E_INVALID_COMMAND);
+		LOG(LOG_LOBBY, "Malformed login command from socket %d.", client_socket);
+		send_error(client_socket, NULL, E_INVALID_COMMAND);
+		remove_player(player);
+		close(client_socket);
+		return NULL;
+	}
+
+	if (cmd.type != CMD_LOGIN)
+	{
+		LOG(LOG_LOBBY, "Invalid command from socket %d, expected LOGIN.", client_socket);
+		send_error(client_socket, NULL, E_INVALID_COMMAND);
 		remove_player(player);
 		close(client_socket);
 		return NULL;
@@ -401,7 +410,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	if (nickname[0] == '\0')
 	{
 		LOG(LOG_LOBBY, "Empty nickname from socket %d.", client_socket);
-		send_error(client_socket, E_INVALID_NICKNAME);
+		send_error(client_socket, C_LOGIN, E_INVALID_NICKNAME);
 		remove_player(player);
 		close(client_socket);
 		return NULL;
@@ -411,7 +420,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	if (find_active_player_by_nickname(nickname))
 	{
 		LOG(LOG_LOBBY, "Player tried to connect with active nickname: %s", nickname);
-		send_error(client_socket, E_NICKNAME_IN_USE);
+		send_error(client_socket, C_LOGIN, E_NICKNAME_IN_USE);
 		remove_player(player);
 		close(client_socket);
 		return NULL;
@@ -452,7 +461,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 				pthread_cond_signal(&room->cond);
 				pthread_mutex_unlock(&room->mutex);
 
-				send_structured_message(client_socket, S_OK, 0);
+				send_structured_message(client_socket, S_OK, 1, K_CMD, C_RESUME);
 
 				if (room->players[other_idx]->socket != -1)
 				{
@@ -490,15 +499,15 @@ static player_t* handle_login_and_reconnect(player_t* player)
 		LOG(LOG_LOBBY, "New player %s logged in.", nickname);
 		// Just update the nickname in the player object we were given.
 		strcpy(player->nickname, nickname);
-		send_structured_message(client_socket, S_OK, 0);
+		send_structured_message(client_socket, S_OK, 1, K_CMD, C_LOGIN);
 	}
 	return player;
 }
 
-static void handle_lobby_command(player_t* player, const parsed_command_t* cmd)
+static void handle_lobby_command(player_t* player, const parsed_command_t* lobby_cmd, const char* raw_cmd)
 {
 	const int client_socket = player->socket;
-	switch (cmd->type)
+	switch (lobby_cmd->type)
 	{
 		case CMD_LIST_ROOMS:
 			{
@@ -536,13 +545,13 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* cmd)
 			}
 		case CMD_JOIN_ROOM:
 			{
-				const char* room_id_str = get_command_arg(cmd, K_ROOM);
+				const char* room_id_str = get_command_arg(lobby_cmd, K_ROOM);
 				if (!room_id_str)
 				{
 					LOG(
 						LOG_LOBBY, "JOIN_ROOM command from %s missing room ID. Disconnecting.", player->nickname
 					);
-					send_error(client_socket, E_INVALID_COMMAND);
+					send_error(client_socket, C_JOIN_ROOM, E_INVALID_COMMAND);
 					remove_player(player);
 					close(client_socket);
 					return;
@@ -565,7 +574,7 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* cmd)
 				else
 				{
 					LOG(LOG_LOBBY, "Player %s failed to join room %d.", player->nickname, room_id);
-					send_error(client_socket, E_CANNOT_JOIN);
+					send_error(client_socket, C_JOIN_ROOM, E_CANNOT_JOIN);
 				}
 				break;
 			}
@@ -574,11 +583,11 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* cmd)
 				LOG(LOG_LOBBY, "Player %s leaving room.", player->nickname);
 				if (leave_room(player) == 0)
 				{
-					send_structured_message(client_socket, S_OK, 0);
+					send_structured_message(client_socket, S_OK, 1, K_CMD, C_LEAVE_ROOM);
 				}
 				else
 				{
-					send_error(client_socket, E_GAME_IN_PROGRESS);
+					send_error(client_socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
 				}
 				break;
 			}
@@ -592,7 +601,7 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* cmd)
 		default:
 			{
 				LOG(LOG_LOBBY, "Invalid command from %s in lobby. Disconnecting.", player->nickname);
-				send_error(client_socket, E_INVALID_COMMAND);
+				send_error(client_socket, NULL, E_INVALID_COMMAND);
 				remove_player(player);
 				close(client_socket);
 				return;
@@ -622,12 +631,12 @@ static void handle_main_loop(player_t* player)
 			if (parse_command(buffer, &lobby_cmd) != 0)
 			{
 				LOG(LOG_LOBBY, "Malformed command from %s in lobby. Disconnecting.", player->nickname);
-				send_error(client_socket, E_INVALID_COMMAND);
+				send_error(client_socket, NULL, E_INVALID_COMMAND);
 				remove_player(player);
 				close(client_socket);
 				return;
 			}
-			handle_lobby_command(player, &lobby_cmd);
+			handle_lobby_command(player, &lobby_cmd, buffer);
 		}
 		else if (player->state == IN_GAME)
 		{
@@ -663,11 +672,11 @@ static void handle_main_loop(player_t* player)
 								{
 									if (leave_room(player) == 0)
 									{
-										send_structured_message(player->socket, S_OK, 0);
+										send_structured_message(player->socket, S_OK, 1, K_CMD, C_LEAVE_ROOM);
 									}
 									else
 									{
-										send_error(player->socket, E_GAME_IN_PROGRESS);
+										send_error(player->socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
 									}
 								}
 								else if (cmd.type == CMD_EXIT)
@@ -680,7 +689,7 @@ static void handle_main_loop(player_t* player)
 								}
 								else
 								{
-									send_error(player->socket, E_INVALID_COMMAND);
+									send_error(player->socket, NULL, E_INVALID_COMMAND);
 								}
 							}
 							else
@@ -774,7 +783,7 @@ int run_server(const int port, const char* address)
 		if (!player)
 		{
 			LOG(LOG_SERVER, "Server is full. Rejecting connection from socket %d.", client_socket);
-			send_error(client_socket, E_SERVER_FULL);
+			send_error(client_socket, NULL, E_SERVER_FULL);
 			close(client_socket);
 			continue;
 		}

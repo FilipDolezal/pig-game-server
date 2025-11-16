@@ -93,7 +93,7 @@ typedef enum
  * @param error The error to send.
  * @return The number of bytes sent, or -1 on error.
  */
-int send_error(int socket, server_error_t error);
+int send_error(int socket, const char* command_str, server_error_t error);
 
 /**
  * @brief Sends a structured message to a client.
