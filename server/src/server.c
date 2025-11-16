@@ -21,7 +21,7 @@
 static void handle_game_input(room_t* room, game_state* game, int player_idx);
 static void reset_room_after_game(room_t* room);
 static player_t* handle_login_and_reconnect(player_t* player);
-static void handle_lobby_command(player_t* player, const parsed_command_t* cmd, const char* raw_cmd);
+static void handle_lobby_command(player_t* player, const parsed_command_t* cmd);
 static void handle_main_loop(player_t* player);
 
 
@@ -499,12 +499,12 @@ static player_t* handle_login_and_reconnect(player_t* player)
 		LOG(LOG_LOBBY, "New player %s logged in.", nickname);
 		// Just update the nickname in the player object we were given.
 		strcpy(player->nickname, nickname);
-		send_structured_message(client_socket, S_OK, 1, K_CMD, C_LOGIN);
+		send_structured_message(client_socket, S_OK, 2, K_CMD, C_LOGIN, K_NICK, nickname);
 	}
 	return player;
 }
 
-static void handle_lobby_command(player_t* player, const parsed_command_t* lobby_cmd, const char* raw_cmd)
+static void handle_lobby_command(player_t* player, const parsed_command_t* lobby_cmd)
 {
 	const int client_socket = player->socket;
 	switch (lobby_cmd->type)
@@ -560,7 +560,7 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* lobby
 				LOG(LOG_LOBBY, "Player %s trying to join room %d.", player->nickname, room_id);
 				if (join_room(room_id, player) == 0)
 				{
-					send_structured_message(client_socket, S_JOIN_OK, 1, K_ROOM, room_id_str);
+					send_structured_message(client_socket, S_OK, 2, K_CMD, C_JOIN_ROOM, K_ROOM, room_id_str);
 					room_t* room = get_room(room_id);
 					if (room->player_count == MAX_PLAYERS_PER_ROOM)
 					{
@@ -636,7 +636,7 @@ static void handle_main_loop(player_t* player)
 				close(client_socket);
 				return;
 			}
-			handle_lobby_command(player, &lobby_cmd, buffer);
+			handle_lobby_command(player, &lobby_cmd);
 		}
 		else if (player->state == IN_GAME)
 		{
