@@ -59,6 +59,12 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 			game->game_over = 1;
 			game->game_winner = other_player_idx;
 		}
+		// Handle GAME_STATE_REQUEST from any player at any time (non-turn-changing)
+		else if (cmd.type == CMD_GAME_STATE_REQUEST)
+		{
+			send_game_state(sending_player, room, game);
+			return;
+		}
 		// Other commands are only valid if it's the sender's turn
 		else if (sending_player_idx == game->current_player)
 		{
@@ -172,7 +178,7 @@ void* game_thread_func(void* arg)
 		pthread_mutex_lock(&room->mutex);
 		while (room->state == PAUSED)
 		{
-			LOG(LOG_GAME, "Game in room %d is paused, waiting for reconnect.", room->id);
+			LOG(LOG_GAME, "Game in room %d is paused, waiting for reconnect. Calling pthread_cond_timedwait.", room->id);
 			// Set a timeout for a player to reconnect
 			struct timespec ts;
 			clock_gettime(CLOCK_REALTIME, &ts);
@@ -180,6 +186,7 @@ void* game_thread_func(void* arg)
 
 			// Wait for a signal that a player has reconnected, or for the timeout to expire
 			const int result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
+			LOG(LOG_GAME, "pthread_cond_timedwait in room %d returned with result: %d", room->id, result);
 			// If the wait timed out, the game is over
 			if (result == ETIMEDOUT)
 			{
@@ -205,8 +212,9 @@ void* game_thread_func(void* arg)
 		// Update the game's file descriptors from the room's player data.
 		for (int i = 0; i < MAX_PLAYERS_PER_ROOM; ++i)
 		{
-			if (room->players[i])
+			if (room->players[i] && game.player_fds[i] != room->players[i]->socket)
 			{
+				send_game_state(room->players[i], room, &game);
 				game.player_fds[i] = room->players[i]->socket;
 			}
 		}
@@ -311,6 +319,26 @@ void broadcast_game_start(const room_t* room, const int first_to_act)
 		next->socket, S_GAME_START, 2,
 		K_OPP_NICK, curr->nickname,
 		K_YOUR_TURN, "0"
+	);
+}
+
+void send_game_state(const player_t* player, const room_t* room, const game_state* game)
+{
+	const int player_index = room->players[0] == player ? 0 : 1;
+
+	char my_score[10], opp_score[10], turn_score[10], roll_result[10];
+	sprintf(my_score, "%d", game->scores[player_index]);
+	sprintf(opp_score, "%d", game->scores[1 - player_index]);
+	sprintf(turn_score, "%d", game->turn_score);
+	sprintf(roll_result, "%d", game->roll_result);
+
+	send_structured_message(
+		player->socket, S_GAME_STATE, 5,
+		K_MY_SCORE, my_score,
+		K_OPP_SCORE, opp_score,
+		K_TURN_SCORE, turn_score,
+		K_ROLL, roll_result,
+		K_YOUR_TURN, player_index == game->current_player ? "1" : "0"
 	);
 }
 
@@ -461,10 +489,11 @@ static player_t* handle_login_and_reconnect(player_t* player)
 			if (parse_command(buffer, &resume_cmd) == 0 && resume_cmd.type == CMD_RESUME)
 			{
 				LOG(LOG_LOBBY, "Player %s resumed game in room %d.", player->nickname, room->id);
+				LOG(LOG_LOBBY, "Player %s resumed game in room %d. Signaling game thread.", player->nickname, room->id);
 				pthread_mutex_lock(&room->mutex);
 				room->state = IN_PROGRESS;
 				broadcast_room_update(room);
-				pthread_cond_signal(&room->cond);
+				pthread_cond_broadcast(&room->cond); // Changed to broadcast
 				pthread_mutex_unlock(&room->mutex);
 
 				send_structured_message(client_socket, S_OK, 1, K_CMD, C_RESUME);

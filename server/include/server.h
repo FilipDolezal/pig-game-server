@@ -31,6 +31,14 @@ void broadcast_game_start(const room_t* room, int first_to_act);
 void broadcast_game_state(const room_t* room, const game_state* game);
 
 /**
+* @brief Send user an OK response with the game status on RESUME
+*  @param player The resuming player
+ * @param room The room where the game is being played.
+ * @param game The current state of the game.
+*/
+void send_game_state(const player_t* player, const room_t* room, const game_state* game);
+
+/**
  * @brief The main thread function for handling a single client connection.
  * @param arg A pointer to the player_t object for the connected client.
  * @return NULL.

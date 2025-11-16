@@ -20,6 +20,8 @@
 
 #define C_HOLD "HOLD"
 
+#define C_GAME_STATE_REQUEST "GAME_STATE_REQUEST"
+
 #define C_QUIT "QUIT"
 
 #define C_EXIT "EXIT"

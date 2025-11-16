@@ -13,6 +13,7 @@ static client_command_t get_command_type(const char* verb)
 	if (strcmp(verb, C_LEAVE_ROOM) == 0) return CMD_LEAVE_ROOM;
 	if (strcmp(verb, C_ROLL) == 0) return CMD_ROLL;
 	if (strcmp(verb, C_HOLD) == 0) return CMD_HOLD;
+	if (strcmp(verb, C_GAME_STATE_REQUEST) == 0) return CMD_GAME_STATE_REQUEST;
 	if (strcmp(verb, C_QUIT) == 0) return CMD_QUIT;
 	if (strcmp(verb, C_EXIT) == 0) return CMD_EXIT;
 	return CMD_UNKNOWN;
