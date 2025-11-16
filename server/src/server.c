@@ -45,8 +45,14 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 			return;
 		}
 
+		// Late attempt at leaving the waiting room
+		if (cmd.type == CMD_LEAVE_ROOM)
+		{
+			LOG(LOG_GAME, "Player %s attempted to leave the waiting room, while game was established", sending_player->nickname, room->id);
+			send_error(sending_player->socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
+		}
 		// Handle QUIT from any player at any time
-		if (cmd.type == CMD_QUIT)
+		else if (cmd.type == CMD_QUIT)
 		{
 			LOG(LOG_GAME, "Player %s quit game in room %d.", sending_player->nickname, room->id);
 			send_structured_message(sending_player->socket, S_OK, 1, K_CMD, C_QUIT);
@@ -649,7 +655,7 @@ static void handle_main_loop(player_t* player)
 					// Player is waiting for an opponent. Wait with a timeout to allow leaving.
 					struct timespec ts;
 					clock_gettime(CLOCK_REALTIME, &ts);
-					ts.tv_sec += 1; // 1 second timeout
+					ts.tv_sec += 5; // 1 second timeout
 
 					const int wait_result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
 					pthread_mutex_unlock(&room->mutex); // Unlock after wait
@@ -678,14 +684,6 @@ static void handle_main_loop(player_t* player)
 									{
 										send_error(player->socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
 									}
-								}
-								else if (cmd.type == CMD_EXIT)
-								{
-									LOG(LOG_LOBBY, "Player %s exiting from waiting room.", player->nickname);
-									leave_room(player); // Attempt to leave room cleanly
-									remove_player(player);
-									close(client_socket);
-									return;
 								}
 								else
 								{

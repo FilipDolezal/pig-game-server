@@ -34,7 +34,7 @@ static const char* server_error_strings[] = {
 
 int send_error(const int socket, const char* command_str, const server_error_t error)
 {
-	return command_str
+	return command_str != NULL
 		? send_structured_message(socket, S_ERROR, 2, K_MSG, server_error_strings[error], K_CMD, command_str)
 		: send_structured_message(socket, S_ERROR, 1, K_MSG, server_error_strings[error]);
 }
