@@ -26,6 +26,8 @@
 
 #define C_EXIT "EXIT"
 
+#define C_PING "PING"
+
 typedef enum
 {
 	S_OK,

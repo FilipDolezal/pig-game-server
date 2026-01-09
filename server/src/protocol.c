@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <time.h>
 
 static const char* server_command_strings[] = {
 	[S_OK] = "OK",
@@ -112,6 +113,9 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 	player->buffer_len -= (newline_ptr - player->read_buffer + 1);
 	memmove(player->read_buffer, newline_ptr + 1, player->buffer_len);
 	player->read_buffer[player->buffer_len] = '\0';
+
+	// Update last activity timestamp on successful command receive
+	player->last_activity = time(NULL);
 
 	return cmd_len; // Return length of the command
 }

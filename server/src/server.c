@@ -65,6 +65,12 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 			send_game_state(sending_player, room, game);
 			return;
 		}
+		// Handle PING from any player at any time (non-turn-changing)
+		else if (cmd.type == CMD_PING)
+		{
+			send_structured_message(sending_player->socket, S_OK, 1, K_CMD, C_PING);
+			return;
+		}
 		// Other commands are only valid if it's the sender's turn
 		else if (sending_player_idx == game->current_player)
 		{
@@ -176,36 +182,98 @@ void* game_thread_func(void* arg)
 	{
 		// Lock the room's mutex to safely check and modify its state
 		pthread_mutex_lock(&room->mutex);
-		while (room->state == PAUSED)
+		if (room->state == PAUSED)
 		{
-			LOG(LOG_GAME, "Game in room %d is paused, waiting for reconnect. Calling pthread_cond_timedwait.", room->id);
-			// Set a timeout for a player to reconnect
-			struct timespec ts;
-			clock_gettime(CLOCK_REALTIME, &ts);
-			ts.tv_sec += RECONNECT_TIMEOUT;
+			LOG(LOG_GAME, "Game in room %d is paused, waiting for player to resume.", room->id);
+			const time_t pause_start = time(NULL);
 
-			// Wait for a signal that a player has reconnected, or for the timeout to expire
-			const int result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
-			LOG(LOG_GAME, "pthread_cond_timedwait in room %d returned with result: %d", room->id, result);
-			// If the wait timed out, the game is over
-			if (result == ETIMEDOUT)
+			// Find which player was idle (caused the pause)
+			int idle_player_idx = -1;
+			const time_t now = time(NULL);
+			for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
 			{
-				LOG(LOG_GAME, "Player in room %d timed out. Game over.", room->id);
-				game.game_over = 1;
-				// Determine the winner (the player who is still connected)
-				const int winner_idx = room->players[0]->socket == -1 ? 1 : 0;
-				// If the winner is still connected, notify them that their opponent timed out
-				if (room->players[winner_idx]->socket != -1)
+				if (room->players[i] && now - room->players[i]->last_activity > IDLE_TIMEOUT)
 				{
-					send_structured_message(
-						room->players[winner_idx]->socket, S_GAME_WIN, 1,
-						K_MSG, "Your opponent timed out."
-					);
+					idle_player_idx = i;
+					break;
 				}
-				break; // Exit the PAUSED loop
+			}
+
+			while (room->state == PAUSED)
+			{
+				pthread_mutex_unlock(&room->mutex);
+
+				// Check if total reconnect timeout has expired
+				if (time(NULL) - pause_start >= RECONNECT_TIMEOUT)
+				{
+					LOG(LOG_GAME, "Player in room %d timed out. Game over.", room->id);
+					pthread_mutex_lock(&room->mutex);
+					game.game_over = 1;
+					// The idle player loses, the active player wins
+					const int winner_idx = (idle_player_idx == 0) ? 1 : 0;
+					if (room->players[winner_idx] && room->players[winner_idx]->socket != -1)
+					{
+						send_structured_message(
+							room->players[winner_idx]->socket, S_GAME_WIN, 1,
+							K_MSG, "Your opponent timed out."
+						);
+					}
+					break;
+				}
+
+				// Process input from all connected players
+				for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
+				{
+					if (room->players[i] && room->players[i]->socket != -1)
+					{
+						fd_set read_fds;
+						struct timeval tv = {1, 0}; // 1 second timeout
+						FD_ZERO(&read_fds);
+						FD_SET(room->players[i]->socket, &read_fds);
+
+						if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
+						{
+							char buffer[MSG_MAX_LEN];
+							if (receive_command(room->players[i], buffer) > 0)
+							{
+								parsed_command_t cmd;
+								if (parse_command(buffer, &cmd) == 0)
+								{
+									if (cmd.type == CMD_PING)
+									{
+										send_structured_message(room->players[i]->socket, S_OK, 1, K_CMD, C_PING);
+									}
+
+									// If the idle player sent a message, they're back - resume game
+									if (i == idle_player_idx)
+									{
+										LOG(LOG_GAME, "Player %s is back, resuming game.", room->players[i]->nickname);
+										const int other_idx = 1 - i;
+										if (room->players[other_idx] && room->players[other_idx]->socket != -1)
+										{
+											send_structured_message(room->players[other_idx]->socket, S_OPPONENT_RECONNECTED, 0);
+										}
+										pthread_mutex_lock(&room->mutex);
+										room->state = IN_PROGRESS;
+										broadcast_room_update(room);
+										pthread_mutex_unlock(&room->mutex);
+									}
+								}
+							}
+							else
+							{
+								// Player disconnected (socket closed)
+								LOG(LOG_GAME, "Player %s disconnected while game paused.", room->players[i]->nickname);
+								handle_player_disconnect(room->players[i]);
+								game.player_fds[i] = -1;
+							}
+						}
+					}
+				}
+
+				pthread_mutex_lock(&room->mutex);
 			}
 		}
-		// Unlock the room's mutex
 		pthread_mutex_unlock(&room->mutex);
 
 		// After a potential pause, player sockets might have changed (reconnect).
@@ -273,6 +341,37 @@ void* game_thread_func(void* arg)
 				{
 					handle_game_input(room, &game, i);
 					if (game.game_over) break;
+				}
+			}
+		}
+		else if (activity == 0)
+		{
+			// Select timed out - check for idle players
+			const time_t now = time(NULL);
+			for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
+			{
+				if (room->players[i] && room->players[i]->socket != -1)
+				{
+					if (now - room->players[i]->last_activity > IDLE_TIMEOUT)
+					{
+						LOG(LOG_GAME, "Player %s timed out in game (idle %ld seconds).",
+							room->players[i]->nickname, now - room->players[i]->last_activity);
+
+						// Notify the other player about the disconnection
+						const int other_idx = 1 - i;
+						if (room->players[other_idx] && room->players[other_idx]->socket != -1)
+						{
+							send_structured_message(room->players[other_idx]->socket, S_OPPONENT_DISCONNECTED, 0);
+						}
+
+						// Keep socket open - player can resume by sending any message
+						// Just pause the game
+						pthread_mutex_lock(&room->mutex);
+						room->state = PAUSED;
+						broadcast_room_update(room);
+						pthread_mutex_unlock(&room->mutex);
+						break;
+					}
 				}
 			}
 		}
@@ -626,6 +725,11 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* lobby
 				}
 				break;
 			}
+		case CMD_PING:
+			{
+				send_structured_message(client_socket, S_OK, 1, K_CMD, C_PING);
+				break;
+			}
 		case CMD_EXIT:
 			{
 				LOG(LOG_LOBBY, "Player %s exiting from lobby.", player->nickname);
@@ -652,6 +756,40 @@ static void handle_main_loop(player_t* player)
 	{
 		if (player->state == LOBBY)
 		{
+			// Use select() with timeout to allow idle detection
+			fd_set read_fds;
+			struct timeval tv;
+			tv.tv_sec = IDLE_TIMEOUT / 2;
+			tv.tv_usec = 0;
+
+			FD_ZERO(&read_fds);
+			FD_SET(player->socket, &read_fds);
+
+			const int activity = select(player->socket + 1, &read_fds, NULL, NULL, &tv);
+
+			if (activity < 0 && errno != EINTR)
+			{
+				LOG(LOG_LOBBY, "Select error for player %s: %s", player->nickname, strerror(errno));
+				remove_player(player);
+				close(client_socket);
+				return;
+			}
+
+			if (activity == 0)
+			{
+				// Timeout - check if player should be disconnected for inactivity
+				if (time(NULL) - player->last_activity > IDLE_TIMEOUT)
+				{
+					LOG(LOG_LOBBY, "Player %s timed out in lobby (idle %ld seconds).",
+						player->nickname, time(NULL) - player->last_activity);
+					remove_player(player);
+					close(client_socket);
+					return;
+				}
+				continue; // Go back to waiting
+			}
+
+			// Data available - read command
 			char buffer[MSG_MAX_LEN];
 			if (receive_command(player, buffer) <= 0)
 			{
@@ -691,6 +829,17 @@ static void handle_main_loop(player_t* player)
 
 					if (wait_result == ETIMEDOUT)
 					{
+						// Check for idle timeout
+						if (time(NULL) - player->last_activity > IDLE_TIMEOUT)
+						{
+							LOG(LOG_LOBBY, "Player %s timed out in waiting room (idle %ld seconds).",
+								player->nickname, time(NULL) - player->last_activity);
+							leave_room(player);
+							remove_player(player);
+							close(client_socket);
+							return;
+						}
+
 						// Timeout: check for commands without blocking.
 						fd_set read_fds;
 						struct timeval tv = {0, 0};
@@ -703,15 +852,26 @@ static void handle_main_loop(player_t* player)
 							if (receive_command(player, buffer) > 0)
 							{
 								parsed_command_t cmd;
-								if (parse_command(buffer, &cmd) == 0 && cmd.type == CMD_LEAVE_ROOM)
+								if (parse_command(buffer, &cmd) == 0)
 								{
-									if (leave_room(player) == 0)
+									if (cmd.type == CMD_LEAVE_ROOM)
 									{
-										send_structured_message(player->socket, S_OK, 1, K_CMD, C_LEAVE_ROOM);
+										if (leave_room(player) == 0)
+										{
+											send_structured_message(player->socket, S_OK, 1, K_CMD, C_LEAVE_ROOM);
+										}
+										else
+										{
+											send_error(player->socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
+										}
+									}
+									else if (cmd.type == CMD_PING)
+									{
+										send_structured_message(player->socket, S_OK, 1, K_CMD, C_PING);
 									}
 									else
 									{
-										send_error(player->socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
+										send_error(player->socket, NULL, E_INVALID_COMMAND);
 									}
 								}
 								else

@@ -26,6 +26,7 @@ typedef struct player_s
 	player_state state;
 	int room_id;
 	time_t disconnected_timestamp;
+	time_t last_activity;
 	char read_buffer[MSG_MAX_LEN * 2];
 	size_t buffer_len;
 } player_t;

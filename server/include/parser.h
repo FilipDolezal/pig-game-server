@@ -14,7 +14,8 @@ typedef enum
 	CMD_HOLD,
 	CMD_GAME_STATE_REQUEST,
 	CMD_QUIT,
-	CMD_EXIT
+	CMD_EXIT,
+	CMD_PING
 } client_command_t;
 
 // A structure to hold a parsed command argument (key-value pair)

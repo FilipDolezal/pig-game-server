@@ -16,6 +16,7 @@ static client_command_t get_command_type(const char* verb)
 	if (strcmp(verb, C_GAME_STATE_REQUEST) == 0) return CMD_GAME_STATE_REQUEST;
 	if (strcmp(verb, C_QUIT) == 0) return CMD_QUIT;
 	if (strcmp(verb, C_EXIT) == 0) return CMD_EXIT;
+	if (strcmp(verb, C_PING) == 0) return CMD_PING;
 	return CMD_UNKNOWN;
 }
 

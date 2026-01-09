@@ -96,6 +96,7 @@ player_t* add_player(const int socket)
 			players[i].room_id = -1;
 			players[i].buffer_len = 0;
 			players[i].read_buffer[0] = '\0';
+			players[i].last_activity = time(NULL);
 			player_count++;
 			LOG(LOG_LOBBY, "Player slot %d assigned to socket %d. Total players: %d", i, socket, player_count);
 			pthread_mutex_unlock(&lobby_mutex);
