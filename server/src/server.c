@@ -187,15 +187,23 @@ void* game_thread_func(void* arg)
 			LOG(LOG_GAME, "Game in room %d is paused, waiting for player to resume.", room->id);
 			const time_t pause_start = time(NULL);
 
-			// Find which player was idle (caused the pause)
+			// Check if this is an actual disconnect (socket == -1) or idle timeout (socket still valid)
+			// For actual disconnect: wait for LOGIN/RESUME flow to set room->state = IN_PROGRESS
+			// For idle timeout: process messages and resume when idle player sends something
+			int has_disconnected_player = 0;
 			int idle_player_idx = -1;
-			const time_t now = time(NULL);
 			for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
 			{
-				if (room->players[i] && now - room->players[i]->last_activity > IDLE_TIMEOUT)
+				if (room->players[i])
 				{
-					idle_player_idx = i;
-					break;
+					if (room->players[i]->socket == -1)
+					{
+						has_disconnected_player = 1;
+					}
+					else if (time(NULL) - room->players[i]->last_activity > IDLE_TIMEOUT)
+					{
+						idle_player_idx = i;
+					}
 				}
 			}
 
@@ -206,66 +214,110 @@ void* game_thread_func(void* arg)
 				// Check if total reconnect timeout has expired
 				if (time(NULL) - pause_start >= RECONNECT_TIMEOUT)
 				{
-					LOG(LOG_GAME, "Player in room %d timed out. Game over.", room->id);
+					LOG(LOG_GAME, "Reconnect timeout in room %d. Game over.", room->id);
 					pthread_mutex_lock(&room->mutex);
 					game.game_over = 1;
-					// The idle player loses, the active player wins
-					const int winner_idx = (idle_player_idx == 0) ? 1 : 0;
-					if (room->players[winner_idx] && room->players[winner_idx]->socket != -1)
+					// Find the winner (player who is still connected)
+					for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
 					{
-						send_structured_message(
-							room->players[winner_idx]->socket, S_GAME_WIN, 1,
-							K_MSG, "Your opponent timed out."
-						);
+						if (room->players[i] && room->players[i]->socket != -1)
+						{
+							send_structured_message(
+								room->players[i]->socket, S_GAME_WIN, 1,
+								K_MSG, "Your opponent timed out."
+							);
+							break;
+						}
 					}
 					break;
 				}
 
-				// Process input from all connected players
-				for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
+				if (has_disconnected_player)
 				{
-					if (room->players[i] && room->players[i]->socket != -1)
+					// Actual disconnect case: don't read from sockets, wait for LOGIN/RESUME flow
+					// Just process PING from the remaining connected player
+					for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
 					{
-						fd_set read_fds;
-						struct timeval tv = {1, 0}; // 1 second timeout
-						FD_ZERO(&read_fds);
-						FD_SET(room->players[i]->socket, &read_fds);
-
-						if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
+						if (room->players[i] && room->players[i]->socket != -1 && game.player_fds[i] != -1)
 						{
-							char buffer[MSG_MAX_LEN];
-							if (receive_command(room->players[i], buffer) > 0)
+							fd_set read_fds;
+							struct timeval tv = {1, 0};
+							FD_ZERO(&read_fds);
+							FD_SET(room->players[i]->socket, &read_fds);
+
+							if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 							{
-								parsed_command_t cmd;
-								if (parse_command(buffer, &cmd) == 0)
+								char buffer[MSG_MAX_LEN];
+								if (receive_command(room->players[i], buffer) > 0)
 								{
-									if (cmd.type == CMD_PING)
+									parsed_command_t cmd;
+									if (parse_command(buffer, &cmd) == 0 && cmd.type == CMD_PING)
 									{
 										send_structured_message(room->players[i]->socket, S_OK, 1, K_CMD, C_PING);
 									}
-
-									// If the idle player sent a message, they're back - resume game
-									if (i == idle_player_idx)
-									{
-										LOG(LOG_GAME, "Player %s is back, resuming game.", room->players[i]->nickname);
-										const int other_idx = 1 - i;
-										if (room->players[other_idx] && room->players[other_idx]->socket != -1)
-										{
-											send_structured_message(room->players[other_idx]->socket, S_OPPONENT_RECONNECTED, 0);
-										}
-										pthread_mutex_lock(&room->mutex);
-										room->state = IN_PROGRESS;
-										broadcast_room_update(room);
-										pthread_mutex_unlock(&room->mutex);
-									}
+									// Ignore other commands, wait for reconnection
+								}
+								else
+								{
+									// This player also disconnected
+									LOG(LOG_GAME, "Player %s also disconnected.", room->players[i]->nickname);
+									handle_player_disconnect(room->players[i]);
+									game.player_fds[i] = -1;
 								}
 							}
-							else
+						}
+					}
+					usleep(100000); // 100ms to avoid busy loop
+				}
+				else
+				{
+					// Idle timeout case: process messages from all players
+					for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
+					{
+						if (room->players[i] && room->players[i]->socket != -1)
+						{
+							fd_set read_fds;
+							struct timeval tv = {1, 0};
+							FD_ZERO(&read_fds);
+							FD_SET(room->players[i]->socket, &read_fds);
+
+							if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 							{
-								// Player disconnected (socket closed)
-								LOG(LOG_GAME, "Player %s disconnected while game paused.", room->players[i]->nickname);
-								handle_player_disconnect(room->players[i]);
-								game.player_fds[i] = -1;
+								char buffer[MSG_MAX_LEN];
+								if (receive_command(room->players[i], buffer) > 0)
+								{
+									parsed_command_t cmd;
+									if (parse_command(buffer, &cmd) == 0)
+									{
+										if (cmd.type == CMD_PING)
+										{
+											send_structured_message(room->players[i]->socket, S_OK, 1, K_CMD, C_PING);
+										}
+
+										// If the idle player sent a message, resume game
+										if (i == idle_player_idx)
+										{
+											LOG(LOG_GAME, "Player %s is back, resuming game.", room->players[i]->nickname);
+											const int other_idx = 1 - i;
+											if (room->players[other_idx] && room->players[other_idx]->socket != -1)
+											{
+												send_structured_message(room->players[other_idx]->socket, S_OPPONENT_RECONNECTED, 0);
+											}
+											pthread_mutex_lock(&room->mutex);
+											room->state = IN_PROGRESS;
+											broadcast_room_update(room);
+											pthread_mutex_unlock(&room->mutex);
+										}
+									}
+								}
+								else
+								{
+									// Player disconnected
+									LOG(LOG_GAME, "Player %s disconnected.", room->players[i]->nickname);
+									handle_player_disconnect(room->players[i]);
+									game.player_fds[i] = -1;
+									has_disconnected_player = 1;
+								}
 							}
 						}
 					}
