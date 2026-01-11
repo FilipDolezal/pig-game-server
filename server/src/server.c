@@ -217,16 +217,48 @@ void* game_thread_func(void* arg)
 					LOG(LOG_GAME, "Reconnect timeout in room %d. Game over.", room->id);
 					pthread_mutex_lock(&room->mutex);
 					game.game_over = 1;
-					// Find the winner (player who is still connected)
-					for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
+
+					// Determine the winner: the player who stayed active (not the idle/disconnected one)
+					int winner_idx = -1;
+					if (has_disconnected_player)
 					{
-						if (room->players[i] && room->players[i]->socket != -1)
+						// Actual disconnect: winner is the one with valid socket
+						for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
+						{
+							if (room->players[i] && room->players[i]->socket != -1)
+							{
+								winner_idx = i;
+								break;
+							}
+						}
+					}
+					else if (idle_player_idx != -1)
+					{
+						// Idle timeout: winner is the OTHER player (not the idle one)
+						winner_idx = 1 - idle_player_idx;
+					}
+
+					if (winner_idx != -1)
+					{
+						game.game_winner = winner_idx;
+						const int loser_idx = 1 - winner_idx;
+
+						// Send GAME_WIN to winner
+						if (room->players[winner_idx] && room->players[winner_idx]->socket != -1)
 						{
 							send_structured_message(
-								room->players[i]->socket, S_GAME_WIN, 1,
+								room->players[winner_idx]->socket, S_GAME_WIN, 1,
 								K_MSG, "Your opponent timed out."
 							);
-							break;
+						}
+
+						// Send GAME_LOSE to loser (if still connected)
+						if (room->players[loser_idx] && room->players[loser_idx]->socket != -1)
+						{
+							send_structured_message(
+								room->players[loser_idx]->socket, S_GAME_LOSE, 1,
+								K_MSG, "You timed out."
+							);
 						}
 					}
 					break;
