@@ -143,6 +143,17 @@ int join_room(const int room_id, player_t* player)
 		return -1;
 	}
 
+	// Check if player is already in the room
+	for (int i = 0; i < rooms[room_id].player_count; ++i)
+	{
+		if (rooms[room_id].players[i] == player)
+		{
+			LOG(LOG_LOBBY, "Player %s is already in room %d", player->nickname, room_id);
+			pthread_mutex_unlock(&lobby_mutex);
+			return -1;
+		}
+	}
+
 	rooms[room_id].players[rooms[room_id].player_count++] = player;
 	player->state = IN_GAME;
 	player->room_id = room_id;
