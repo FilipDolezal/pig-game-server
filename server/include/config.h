@@ -8,7 +8,7 @@
 #define WINNING_SCORE 30
 #define RECONNECT_TIMEOUT 20
 #define PING_INTERVAL 10
-#define IDLE_TIMEOUT 20
+#define IDLE_TIMEOUT 30
 
 extern int MAX_ROOMS;
 extern int MAX_PLAYERS;
