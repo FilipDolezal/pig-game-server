@@ -113,8 +113,9 @@ int send_structured_message(int socket, server_command_t command, int num_args, 
  * @brief Receives a command from a client, handling partial reads.
  * @param player A pointer to the player_t object.
  * @param out_command_buffer The buffer to store the received command.
+ * @param buffer_size The size of the output buffer.
  * @return The number of bytes in the command, 0 on disconnect, -1 on error, -2 on buffer full.
  */
-ssize_t receive_command(player_t* player, char* out_command_buffer);
+ssize_t receive_command(player_t* player, char* out_command_buffer, size_t buffer_size);
 
 #endif // PROTOCOL_H

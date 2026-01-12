@@ -32,7 +32,7 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 	const player_t* other_player = room->players[other_player_idx];
 
 	char command_buffer[MSG_MAX_LEN];
-	const ssize_t recv_result = receive_command(sending_player, command_buffer);
+	const ssize_t recv_result = receive_command(sending_player, command_buffer, sizeof(command_buffer));
 
 	if (recv_result == -3)
 	{
@@ -312,7 +312,7 @@ void* game_thread_func(void* arg)
 							if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 							{
 								char buffer[MSG_MAX_LEN];
-								const ssize_t recv_result = receive_command(room->players[i], buffer);
+								const ssize_t recv_result = receive_command(room->players[i], buffer, sizeof(buffer));
 								if (recv_result > 0)
 								{
 									parsed_command_t cmd;
@@ -349,7 +349,7 @@ void* game_thread_func(void* arg)
 							if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 							{
 								char buffer[MSG_MAX_LEN];
-								const ssize_t recv_result = receive_command(room->players[i], buffer);
+								const ssize_t recv_result = receive_command(room->players[i], buffer, sizeof(buffer));
 								if (recv_result > 0)
 								{
 									parsed_command_t cmd;
@@ -626,7 +626,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 
 	// --- LOGIN ---
 	ssize_t login_result;
-	while ((login_result = receive_command(player, buffer)) == -3)
+	while ((login_result = receive_command(player, buffer, sizeof(buffer))) == -3)
 	{
 		// Socket timeout - keep waiting for LOGIN command
 	}
@@ -718,7 +718,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 		const int other_idx = (room->players[0] == player) ? 1 : 0;
 
 		ssize_t resume_result;
-		while ((resume_result = receive_command(player, buffer)) == -3)
+		while ((resume_result = receive_command(player, buffer, sizeof(buffer))) == -3)
 		{
 			// Socket timeout - keep waiting for RESUME command
 		}
@@ -950,7 +950,7 @@ static void handle_main_loop(player_t* player)
 
 			// Data available (from socket or buffer) - read command
 			char buffer[MSG_MAX_LEN];
-			const ssize_t recv_result = receive_command(player, buffer);
+			const ssize_t recv_result = receive_command(player, buffer, sizeof(buffer));
 			if (recv_result == -3)
 			{
 				// Socket timeout - continue waiting
@@ -1024,7 +1024,7 @@ static void handle_main_loop(player_t* player)
 						if (has_buffered_cmd || has_socket_data)
 						{
 							char buffer[MSG_MAX_LEN];
-							const ssize_t recv_result = receive_command(player, buffer);
+							const ssize_t recv_result = receive_command(player, buffer, sizeof(buffer));
 							if (recv_result == -3)
 							{
 								// Socket timeout - continue waiting

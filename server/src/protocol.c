@@ -61,7 +61,7 @@ int send_structured_message(const int socket, const server_command_t command, co
 	return send(socket, buffer, strlen(buffer), 0);
 }
 
-ssize_t receive_command(player_t* player, char* out_command_buffer)
+ssize_t receive_command(player_t* player, char* out_command_buffer, size_t buffer_size)
 {
 	// Search for a newline in the existing buffer
 	const char* newline_ptr = strchr(player->read_buffer, '\n');
@@ -115,6 +115,16 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 	if (cmd_len > 0 && player->read_buffer[cmd_len - 1] == '\r')
 	{
 		cmd_len--;
+	}
+
+	// Check if output buffer is large enough
+	if (cmd_len >= buffer_size)
+	{
+		// Command too long for output buffer. Consume it and report error.
+		player->buffer_len -= (newline_ptr - player->read_buffer + 1);
+		memmove(player->read_buffer, newline_ptr + 1, player->buffer_len);
+		player->read_buffer[player->buffer_len] = '\0';
+		return -2;
 	}
 
 	// Copy the command to the output buffer and null-terminate it
