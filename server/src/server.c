@@ -976,11 +976,11 @@ static void handle_main_loop(player_t* player)
 				if (room->state == WAITING)
 				{
 					// Player is waiting for an opponent. Wait with a timeout to allow leaving.
-					struct timespec ts;
-					clock_gettime(CLOCK_REALTIME, &ts);
-					ts.tv_sec += 5; // 1 second timeout
+                    struct timespec ts;
+                    clock_gettime(CLOCK_REALTIME, &ts);
+                    ts.tv_sec += 1; // 1 second timeout
 
-					const int wait_result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
+                    const int wait_result = pthread_cond_timedwait(&room->cond, &room->mutex, &ts);
 					pthread_mutex_unlock(&room->mutex); // Unlock after wait
 
 					if (wait_result == ETIMEDOUT)
