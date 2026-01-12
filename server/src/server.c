@@ -903,43 +903,49 @@ static void handle_main_loop(player_t* player)
 
 		if (player->state == LOBBY)
 		{
-			// Use select() with timeout to allow idle detection
-			fd_set read_fds;
-			struct timeval tv;
-			tv.tv_sec = IDLE_TIMEOUT / 2;
-			tv.tv_usec = 0;
+			// Check if there's already a complete command in the buffer first
+			int has_buffered_command = (player->buffer_len > 0 && strchr(player->read_buffer, '\n') != NULL);
 
-			FD_ZERO(&read_fds);
-			FD_SET(player->socket, &read_fds);
-
-			const int activity = select(player->socket + 1, &read_fds, NULL, NULL, &tv);
-
-			if (activity < 0 && errno != EINTR)
+			if (!has_buffered_command)
 			{
-				LOG(LOG_LOBBY, "Select error for player %s: %s", player->nickname, strerror(errno));
-				remove_player(player);
-				close(client_socket);
-				return;
-			}
+				// No buffered command - use select() with timeout to wait for data
+				fd_set read_fds;
+				struct timeval tv;
+				tv.tv_sec = IDLE_TIMEOUT / 2;
+				tv.tv_usec = 0;
 
-			if (activity == 0)
-			{
-				// Timeout - check if player should be disconnected for inactivity
-				if (time(NULL) - player->last_activity > IDLE_TIMEOUT)
+				FD_ZERO(&read_fds);
+				FD_SET(player->socket, &read_fds);
+
+				const int activity = select(player->socket + 1, &read_fds, NULL, NULL, &tv);
+
+				if (activity < 0 && errno != EINTR)
 				{
-					LOG(
-						LOG_LOBBY, "Player %s timed out in lobby (idle %ld seconds).",
-						player->nickname, time(NULL) - player->last_activity
-					);
-					send_structured_message(client_socket, S_DISCONNECTED, 0);
+					LOG(LOG_LOBBY, "Select error for player %s: %s", player->nickname, strerror(errno));
 					remove_player(player);
 					close(client_socket);
 					return;
 				}
-				continue; // Go back to waiting
+
+				if (activity == 0)
+				{
+					// Timeout - check if player should be disconnected for inactivity
+					if (time(NULL) - player->last_activity > IDLE_TIMEOUT)
+					{
+						LOG(
+							LOG_LOBBY, "Player %s timed out in lobby (idle %ld seconds).",
+							player->nickname, time(NULL) - player->last_activity
+						);
+						send_structured_message(client_socket, S_DISCONNECTED, 0);
+						remove_player(player);
+						close(client_socket);
+						return;
+					}
+					continue; // Go back to waiting
+				}
 			}
 
-			// Data available - read command
+			// Data available (from socket or buffer) - read command
 			char buffer[MSG_MAX_LEN];
 			const ssize_t recv_result = receive_command(player, buffer);
 			if (recv_result == -3)
@@ -999,13 +1005,20 @@ static void handle_main_loop(player_t* player)
 							return;
 						}
 
-						// Timeout: check for commands without blocking.
-						fd_set read_fds;
-						struct timeval tv = {0, 0};
-						FD_ZERO(&read_fds);
-						FD_SET(player->socket, &read_fds);
+						// Timeout: check for commands (from buffer first, then socket)
+						int has_buffered_cmd = (player->buffer_len > 0 && strchr(player->read_buffer, '\n') != NULL);
+						int has_socket_data = 0;
 
-						if (select(player->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
+						if (!has_buffered_cmd)
+						{
+							fd_set read_fds;
+							struct timeval tv = {0, 0};
+							FD_ZERO(&read_fds);
+							FD_SET(player->socket, &read_fds);
+							has_socket_data = (select(player->socket + 1, &read_fds, NULL, NULL, &tv) > 0);
+						}
+
+						if (has_buffered_cmd || has_socket_data)
 						{
 							char buffer[MSG_MAX_LEN];
 							const ssize_t recv_result = receive_command(player, buffer);
