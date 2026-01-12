@@ -218,8 +218,21 @@ void* game_thread_func(void* arg)
 				}
 			}
 
+			time_t last_debug_log = 0;
 			while (room->state == PAUSED)
 			{
+				const time_t debug_now = time(NULL);
+				if (debug_now - last_debug_log >= 2)
+				{
+					LOG(LOG_GAME, "DEBUG: Room %d PAUSED loop. has_disconnected_player=%d. Players[0]: %s (sock: %d), Players[1]: %s (sock: %d)",
+						room->id, has_disconnected_player,
+						room->players[0] ? room->players[0]->nickname : "NULL",
+						room->players[0] ? room->players[0]->socket : -1,
+						room->players[1] ? room->players[1]->nickname : "NULL",
+						room->players[1] ? room->players[1]->socket : -1);
+					last_debug_log = debug_now;
+				}
+
 				pthread_mutex_unlock(&room->mutex);
 
 				// Check if total reconnect timeout has expired
