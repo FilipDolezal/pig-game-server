@@ -660,6 +660,15 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	}
 
 	// Check if a player with this nickname is already active
+	// Retry a few times to handle race conditions where the disconnect hasn't been processed yet
+	int retries = 5;
+	while (find_active_player_by_nickname(nickname) && retries > 0)
+	{
+		LOG(LOG_LOBBY, "Nickname %s is active, waiting for potential disconnect processing (%d retries left)...", nickname, retries);
+		usleep(200000); // Wait 200ms
+		retries--;
+	}
+
 	if (find_active_player_by_nickname(nickname))
 	{
 		LOG(LOG_LOBBY, "Player tried to connect with active nickname: %s", nickname);
