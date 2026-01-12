@@ -19,6 +19,7 @@ static const char* server_command_strings[] = {
 	[S_GAME_LOSE] = "GAME_LOSE",
 	[S_OPPONENT_DISCONNECTED] = "OPPONENT_DISCONNECTED",
 	[S_OPPONENT_RECONNECTED] = "OPPONENT_RECONNECTED",
+	[S_DISCONNECTED] = "DISCONNECTED",
 };
 
 static const char* server_error_strings[] = {

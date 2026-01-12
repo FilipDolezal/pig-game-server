@@ -48,7 +48,10 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 		// Late attempt at leaving the waiting room
 		if (cmd.type == CMD_LEAVE_ROOM)
 		{
-			LOG(LOG_GAME, "Player %s attempted to leave the waiting room, while game was established", sending_player->nickname, room->id);
+			LOG(
+				LOG_GAME, "Player %s attempted to leave the waiting room, while game was established",
+				sending_player->nickname, room->id
+			);
 			send_error(sending_player->socket, C_LEAVE_ROOM, E_GAME_IN_PROGRESS);
 		}
 		// Handle QUIT from any player at any time
@@ -240,6 +243,7 @@ void* game_thread_func(void* arg)
 
 					if (winner_idx != -1)
 					{
+						game.game_over = 1;
 						game.game_winner = winner_idx;
 						const int loser_idx = 1 - winner_idx;
 
@@ -252,9 +256,16 @@ void* game_thread_func(void* arg)
 							);
 						}
 
-						// Send GAME_LOSE to loser (if still connected)
+						// Send DISCONNECTED to loser (if still connected)
 						if (room->players[loser_idx] && room->players[loser_idx]->socket != -1)
 						{
+							// Send to the idle player
+							send_structured_message(room->players[loser_idx]->socket, S_DISCONNECTED, 0);
+
+							// Use helper to disconnect socket
+							handle_player_disconnect(room->players[loser_idx]);
+							game.player_fds[loser_idx] = -1;
+
 							send_structured_message(
 								room->players[loser_idx]->socket, S_GAME_LOSE, 1,
 								K_MSG, "You timed out."
@@ -864,8 +875,11 @@ static void handle_main_loop(player_t* player)
 				// Timeout - check if player should be disconnected for inactivity
 				if (time(NULL) - player->last_activity > IDLE_TIMEOUT)
 				{
-					LOG(LOG_LOBBY, "Player %s timed out in lobby (idle %ld seconds).",
-						player->nickname, time(NULL) - player->last_activity);
+					LOG(
+						LOG_LOBBY, "Player %s timed out in lobby (idle %ld seconds).",
+						player->nickname, time(NULL) - player->last_activity
+					);
+					send_structured_message(client_socket, S_DISCONNECTED, 0);
 					remove_player(player);
 					close(client_socket);
 					return;
@@ -916,8 +930,11 @@ static void handle_main_loop(player_t* player)
 						// Check for idle timeout
 						if (time(NULL) - player->last_activity > IDLE_TIMEOUT)
 						{
-							LOG(LOG_LOBBY, "Player %s timed out in waiting room (idle %ld seconds).",
-								player->nickname, time(NULL) - player->last_activity);
+							LOG(
+								LOG_LOBBY, "Player %s timed out in waiting room (idle %ld seconds).",
+								player->nickname, time(NULL) - player->last_activity
+							);
+							send_structured_message(client_socket, S_DISCONNECTED, 0);
 							leave_room(player);
 							remove_player(player);
 							close(client_socket);

@@ -41,6 +41,7 @@ typedef enum
 	S_GAME_LOSE,
 	S_OPPONENT_DISCONNECTED,
 	S_OPPONENT_RECONNECTED,
+	S_DISCONNECTED,
 } server_command_t;
 
 typedef enum
