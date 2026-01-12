@@ -32,8 +32,7 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 	const player_t* other_player = room->players[other_player_idx];
 
 	char command_buffer[MSG_MAX_LEN];
-	const ssize_t recv_result = receive_command(sending_player, command_buffer);
-	if (recv_result > 0)
+	if (receive_command(sending_player, command_buffer) > 0)
 	{
 		LOG(LOG_GAME, "Received from player %s: %s", sending_player->nickname, command_buffer);
 		parsed_command_t cmd;
@@ -118,12 +117,6 @@ static void handle_game_input(room_t* room, game_state* game, const int sending_
 			broadcast_game_state(room, game);
 			broadcast_game_over(room, game);
 		}
-	}
-	else if (recv_result == -3)
-	{
-		// Socket read timeout - connection might still be alive, just no data yet
-		// Don't treat this as a disconnect
-		return;
 	}
 	else
 	{
@@ -298,8 +291,7 @@ void* game_thread_func(void* arg)
 							if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 							{
 								char buffer[MSG_MAX_LEN];
-								const ssize_t recv_result = receive_command(room->players[i], buffer);
-								if (recv_result > 0)
+								if (receive_command(room->players[i], buffer) > 0)
 								{
 									parsed_command_t cmd;
 									if (parse_command(buffer, &cmd) == 0 && cmd.type == CMD_PING)
@@ -308,9 +300,9 @@ void* game_thread_func(void* arg)
 									}
 									// Ignore other commands, wait for reconnection
 								}
-								else if (recv_result != -3)
+								else
 								{
-									// This player also disconnected (ignore -3 timeout)
+									// This player also disconnected
 									LOG(LOG_GAME, "Player %s also disconnected.", room->players[i]->nickname);
 									handle_player_disconnect(room->players[i]);
 									game.player_fds[i] = -1;
@@ -335,8 +327,7 @@ void* game_thread_func(void* arg)
 							if (select(room->players[i]->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 							{
 								char buffer[MSG_MAX_LEN];
-								const ssize_t recv_result = receive_command(room->players[i], buffer);
-								if (recv_result > 0)
+								if (receive_command(room->players[i], buffer) > 0)
 								{
 									parsed_command_t cmd;
 									if (parse_command(buffer, &cmd) == 0)
@@ -362,9 +353,9 @@ void* game_thread_func(void* arg)
 										}
 									}
 								}
-								else if (recv_result != -3)
+								else
 								{
-									// Player disconnected (ignore -3 timeout)
+									// Player disconnected
 									LOG(LOG_GAME, "Player %s disconnected.", room->players[i]->nickname);
 									handle_player_disconnect(room->players[i]);
 									game.player_fds[i] = -1;
@@ -611,12 +602,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	char nickname[NICKNAME_LEN] = {0};
 
 	// --- LOGIN ---
-	ssize_t login_result;
-	while ((login_result = receive_command(player, buffer)) == -3)
-	{
-		// Timeout - keep waiting for LOGIN command
-	}
-	if (login_result <= 0)
+	if (receive_command(player, buffer) <= 0)
 	{
 		LOG(LOG_LOBBY, "Client on socket %d disconnected before login.", client_socket);
 		remove_player(player);
@@ -691,13 +677,7 @@ static player_t* handle_login_and_reconnect(player_t* player)
 		room_t* room = get_room(player->room_id);
 		const int other_idx = (room->players[0] == player) ? 1 : 0;
 
-		ssize_t resume_result;
-		while ((resume_result = receive_command(player, buffer)) == -3)
-		{
-			// Timeout - keep waiting for RESUME command
-		}
-
-		if (resume_result > 0)
+		if (receive_command(player, buffer) > 0)
 		{
 			parsed_command_t resume_cmd;
 			if (parse_command(buffer, &resume_cmd) == 0 && resume_cmd.type == CMD_RESUME)
@@ -909,13 +889,7 @@ static void handle_main_loop(player_t* player)
 
 			// Data available - read command
 			char buffer[MSG_MAX_LEN];
-			const ssize_t recv_result = receive_command(player, buffer);
-			if (recv_result == -3)
-			{
-				// Timeout - continue waiting
-				continue;
-			}
-			if (recv_result <= 0)
+			if (receive_command(player, buffer) <= 0)
 			{
 				LOG(LOG_LOBBY, "Player %s disconnected from lobby.", player->nickname);
 				remove_player(player);
@@ -976,13 +950,7 @@ static void handle_main_loop(player_t* player)
 						if (select(player->socket + 1, &read_fds, NULL, NULL, &tv) > 0)
 						{
 							char buffer[MSG_MAX_LEN];
-							const ssize_t recv_result = receive_command(player, buffer);
-							if (recv_result == -3)
-							{
-								// Timeout - continue
-								continue;
-							}
-							else if (recv_result > 0)
+							if (receive_command(player, buffer) > 0)
 							{
 								parsed_command_t cmd;
 								if (parse_command(buffer, &cmd) == 0)
@@ -1095,15 +1063,6 @@ int run_server(const int port, const char* address)
 		{
 			LOG(LOG_SERVER, "accept() failed: %s", strerror(errno));
 			continue;
-		}
-
-		// Set socket receive timeout to detect disconnections faster
-		struct timeval timeout;
-		timeout.tv_sec = 5;  // 5 second timeout
-		timeout.tv_usec = 0;
-		if (setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-		{
-			LOG(LOG_SERVER, "setsockopt(SO_RCVTIMEO) failed: %s", strerror(errno));
 		}
 
 		LOG(LOG_SERVER, "Accepted new connection on socket %d.", client_socket);

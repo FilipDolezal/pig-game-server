@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
-#include <errno.h>
 
 static const char* server_command_strings[] = {
 	[S_OK] = "OK",
@@ -90,21 +89,10 @@ ssize_t receive_command(player_t* player, char* out_command_buffer)
 			player->read_buffer[player->buffer_len] = '\0'; // Null-terminate
 			newline_ptr = strchr(player->read_buffer, '\n');
 		}
-		else if (bytes_read == 0)
-		{
-			// read() returned 0 - socket closed by peer
-			return 0;
-		}
 		else
 		{
-			// read() returned -1 - check errno
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				// Timeout on read - return special code to indicate timeout (not a disconnect)
-				return -3;
-			}
-			// Other error (connection reset, etc) - treat as disconnect
-			return -1;
+			// read() returned 0 (disconnect) or -1 (error)
+			return bytes_read;
 		}
 	}
 
