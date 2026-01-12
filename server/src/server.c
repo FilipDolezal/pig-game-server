@@ -892,6 +892,15 @@ static void handle_main_loop(player_t* player)
 
 	while (player->socket != -1)
 	{
+		// Check if the socket handled by this thread is still the active one for the player.
+		// If not, it means a reconnection happened and this thread is obsolete.
+		if (player->socket != client_socket)
+		{
+			LOG(LOG_SERVER, "Thread for socket %d detected player %s is now on socket %d. Exiting.",
+				client_socket, player->nickname, player->socket);
+			return;
+		}
+
 		if (player->state == LOBBY)
 		{
 			// Use select() with timeout to allow idle detection
