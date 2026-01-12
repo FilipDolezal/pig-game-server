@@ -660,9 +660,18 @@ static player_t* handle_login_and_reconnect(player_t* player)
 	}
 
 	// Check if a player with this nickname is already active
-	if (find_active_player_by_nickname(nickname))
+	player_t* active_player = find_active_player_by_nickname(nickname);
+	if (active_player)
 	{
-		LOG(LOG_LOBBY, "Player tried to connect with active nickname: %s", nickname);
+		LOG(LOG_LOBBY, "Player tried to connect with active nickname: %s. Invalidating old session.", nickname);
+		
+		// Invalidate the old socket so the game/lobby thread detects disconnect
+		if (active_player->socket != -1)
+		{
+			shutdown(active_player->socket, SHUT_RDWR);
+			close(active_player->socket);
+		}
+
 		send_error(client_socket, C_LOGIN, E_NICKNAME_IN_USE);
 		remove_player(player);
 		close(client_socket);
