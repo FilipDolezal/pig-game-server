@@ -1076,6 +1076,15 @@ static void handle_main_loop(player_t* player)
 					while (player->state == IN_GAME)
 					{
 						pthread_cond_wait(&room->cond, &room->mutex);
+
+						// Check if this thread is obsolete (reconnection happened)
+						if (player->socket != client_socket)
+						{
+							pthread_mutex_unlock(&room->mutex);
+							LOG(LOG_SERVER, "Thread for socket %d detected reconnection after cond_wait. Exiting.",
+								client_socket);
+							return;
+						}
 					}
 					pthread_mutex_unlock(&room->mutex);
 				}
