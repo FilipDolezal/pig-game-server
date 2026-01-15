@@ -12,8 +12,10 @@
 int run_server(int port, const char* address);
 
 /**
-* TODO
-*/
+ * @brief Sends GAME_WIN/GAME_LOSE messages to players when the game ends.
+ * @param room The room where the game finished.
+ * @param game The final game state (contains winner info).
+ */
 void broadcast_game_over(const room_t* room, const game_state* game);
 
 /**

@@ -5,30 +5,32 @@
 #include <time.h>
 #include "config.h"
 
+// Where the player currently is
 typedef enum
 {
-	LOBBY,
-	IN_GAME
+	LOBBY,      // browsing rooms, not in a game
+	IN_GAME     // in a room (waiting for opponent or playing)
 } player_state;
 
+// Room lifecycle states
 typedef enum
 {
-	WAITING,
-	IN_PROGRESS,
-	PAUSED,
-	ABORTED
+	WAITING,     // waiting for players to join
+	IN_PROGRESS, // game is running
+	PAUSED,      // one player disconnected, waiting for reconnect
+	ABORTED      // game was cancelled (e.g. player quit during reconnect)
 } room_state;
 
 typedef struct player_s
 {
-	int socket;
+	int socket;                        // -1 if disconnected
 	char nickname[NICKNAME_LEN];
 	player_state state;
-	int room_id;
-	time_t disconnected_timestamp;
-	time_t last_activity;
-	char read_buffer[MSG_MAX_LEN * 2];
-	size_t buffer_len;
+	int room_id;                       // -1 if not in a room
+	time_t disconnected_timestamp;     // when they dropped (for reconnect timeout)
+	time_t last_activity;              // last time we heard from them (for idle timeout)
+	char read_buffer[MSG_MAX_LEN * 2]; // partial message buffer (TCP can split messages)
+	size_t buffer_len;                 // how much is in read_buffer
 } player_t;
 
 typedef struct room_s
@@ -37,9 +39,9 @@ typedef struct room_s
 	room_state state;
 	player_t* players[MAX_PLAYERS_PER_ROOM];
 	int player_count;
-	pthread_t game_thread;
-	pthread_mutex_t mutex;
-	pthread_cond_t cond;
+	pthread_t game_thread;  // runs game_thread_func when game starts
+	pthread_mutex_t mutex;  // protects room state changes
+	pthread_cond_t cond;    // signals client threads when game state changes
 } room_t;
 
 extern player_t* players;

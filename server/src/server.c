@@ -176,6 +176,16 @@ static void reset_room_after_game(room_t* room)
 	pthread_mutex_unlock(&room->mutex);
 }
 
+/*
+ * Main game loop - runs in its own thread, one per active game.
+ *
+ * Handles: player turns, disconnect/reconnect, idle timeouts.
+ *
+ * The tricky part is pausing: when a player disconnects or goes idle,
+ * we pause the game and wait for them to come back (up to RECONNECT_TIMEOUT).
+ * Meanwhile we still need to handle PINGs from the other player so they
+ * don't get kicked for inactivity.
+ */
 void* game_thread_func(void* arg)
 {
 	room_t* room = (room_t*)arg;
@@ -191,8 +201,12 @@ void* game_thread_func(void* arg)
 
 	while (!game.game_over)
 	{
-		// Lock the room's mutex to safely check and modify its state
 		pthread_mutex_lock(&room->mutex);
+
+		// --- PAUSE HANDLING ---
+		// Two reasons we pause: real disconnect (socket == -1) or idle timeout.
+		// For disconnect: client_handler will set room->state = IN_PROGRESS when player RESUMEs.
+		// For idle: we resume as soon as the idle player sends any message.
 		if (room->state == PAUSED)
 		{
 			LOG(LOG_GAME, "Game in room %d is paused, waiting for player to resume.", room->id);
@@ -298,8 +312,8 @@ void* game_thread_func(void* arg)
 
 				if (has_disconnected_player)
 				{
-					// Actual disconnect case: don't read from sockets, wait for LOGIN/RESUME flow
-					// Just process PING from the remaining connected player
+					// Real disconnect: the player's client_handler will handle reconnection.
+					// We just keep the remaining player alive by responding to their PINGs.
 					for (int i = 0; i < MAX_PLAYERS_PER_ROOM; i++)
 					{
 						if (room->players[i] && room->players[i]->socket != -1 && game.player_fds[i] != -1)
@@ -589,10 +603,14 @@ void broadcast_game_state(const room_t* room, const game_state* game)
 	);
 }
 
-// Forward declarations for helper functions
-static player_t* handle_login_and_reconnect(player_t* player);
-static void handle_main_loop(player_t* player);
-
+/*
+ * Per-client thread - handles one player's connection from login to disconnect.
+ *
+ * Flow: LOGIN -> lobby commands -> join room -> wait for game -> back to lobby
+ *
+ * Note: when a player reconnects, their NEW connection takes over this thread's
+ * player object, and this thread quietly exits (see socket != client_socket checks).
+ */
 void* client_handler_thread(void* arg)
 {
 	player_t* player = (player_t*)arg;
@@ -611,6 +629,15 @@ void* client_handler_thread(void* arg)
 	pthread_exit(NULL);
 }
 
+/*
+ * Handles the LOGIN flow and reconnection logic.
+ *
+ * Returns the player object to use (might be different from input if reconnecting),
+ * or NULL if login failed and connection was closed.
+ *
+ * Reconnect flow: if we find a disconnected player with the same nickname who's
+ * still in a game, we "adopt" their player slot and resume the paused game.
+ */
 static player_t* handle_login_and_reconnect(player_t* player)
 {
 	char max_players_str[4];
@@ -889,6 +916,13 @@ static void handle_lobby_command(player_t* player, const parsed_command_t* lobby
 	}
 }
 
+/*
+ * Main loop after login - alternates between LOBBY state and IN_GAME state.
+ *
+ * LOBBY: process commands like LIST_ROOMS, JOIN_ROOM, etc.
+ * IN_GAME (waiting): sit in room waiting for opponent, can still LEAVE_ROOM or PING
+ * IN_GAME (playing): game_thread handles everything, we just wait for game to end
+ */
 static void handle_main_loop(player_t* player)
 {
 	const int client_socket = player->socket;

@@ -1,10 +1,17 @@
+/*
+ * lobby.c - Player and room management
+ *
+ * All functions here are thread-safe (use lobby_mutex).
+ * Players and rooms are stored in fixed-size arrays allocated at startup.
+ */
+
 #include "lobby.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "config.h"
 #include "logger.h"
-#include "protocol.h" // Added for send_structured_message
+#include "protocol.h"
 
 // Global arrays for players and rooms
 player_t* players;
@@ -178,6 +185,8 @@ room_t* get_room(const int room_id)
 	return &rooms[room_id];
 }
 
+// Find a player who dropped mid-game and can reconnect.
+// They have socket == -1 (disconnected) but state == IN_GAME (game still waiting for them).
 player_t* find_disconnected_player(const char* nickname)
 {
 	pthread_mutex_lock(&lobby_mutex);
@@ -266,6 +275,8 @@ int leave_room(player_t* player)
 	return result;
 }
 
+// Mark player as disconnected but keep their slot (for reconnection).
+// Don't change their state - if they were IN_GAME, game is now paused waiting for them.
 void handle_player_disconnect(player_t* player)
 {
 	pthread_mutex_lock(&lobby_mutex);

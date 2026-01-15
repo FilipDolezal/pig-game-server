@@ -1,5 +1,15 @@
+/*
+ * protocol.c - Message serialization and TCP buffering
+ *
+ * Message format: COMMAND|key1:value1|key2:value2\n
+ * Example: GAME_STATE|my_score:10|opp_score:5|turn_score:3|roll:4|your_turn:1\n
+ *
+ * TCP can split/combine messages, so receive_command() buffers partial reads
+ * and extracts complete lines (ending with \n).
+ */
+
 #include "protocol.h"
-#include "lobby.h" // For player_t definition
+#include "lobby.h"
 #include <sys/socket.h>
 #include <unistd.h>
 #include <string.h>

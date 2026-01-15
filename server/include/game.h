@@ -3,16 +3,17 @@
 
 #include "config.h"
 
+// Pig dice game state - tracks everything about an ongoing game
 typedef struct
 {
-	int player_fds[2];
-	int scores[2];
-	int current_player;
-	int turn_score;
-	int roll_result;
-	int game_over;
-	int game_winner;
-	unsigned int rand_seed;
+	int player_fds[2];     // socket fds for each player (index 0 and 1)
+	int scores[2];         // banked points for each player
+	int current_player;    // whose turn it is (0 or 1)
+	int turn_score;        // points accumulated this turn (lost if you roll a 1)
+	int roll_result;       // last dice roll (1-6)
+	int game_over;         // 1 if game has ended
+	int game_winner;       // index of winner, or -1 if no winner yet
+	unsigned int rand_seed; // for thread-safe rand_r()
 } game_state;
 
 /**
